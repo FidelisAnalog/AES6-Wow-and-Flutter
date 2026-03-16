@@ -100,26 +100,3 @@ export function analyzeFull(pcmData, sampleRate) {
   );
 }
 
-/**
- * Run analysis on a sub-region.
- * @param {Float32Array|Float64Array} pcmData
- * @param {number} sampleRate
- * @param {number} startSec
- * @param {number} endSec
- */
-export function analyzeRegion(pcmData, sampleRate, startSec, endSec) {
-  if (!_ready) {
-    _onError?.('Python runtime not ready', '');
-    return;
-  }
-
-  const f64 = pcmData instanceof Float64Array
-    ? pcmData
-    : new Float64Array(pcmData);
-
-  const buffer = f64.buffer;
-  _worker.postMessage(
-    { type: 'analyzeRegion', pcm: buffer, sampleRate, startSec, endSec },
-    [buffer],
-  );
-}
