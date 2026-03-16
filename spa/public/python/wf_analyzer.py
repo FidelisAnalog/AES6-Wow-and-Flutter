@@ -477,6 +477,27 @@ def identify_motor_harmonics(peaks, motor_slots, motor_poles, rpm,
 
 # ========================= MAIN ANALYSIS =========================
 
+def _assess_confidence(duration, n_crossings, n_rejected, f_est, f_mean,
+                       output_rate, aes6_keys):
+    """
+    Assess confidence level for each AES6 metric.
+
+    Returns dict mirroring aes6 keys with values "high", "medium", or "low".
+    Placeholder implementation — all metrics return "high" for now.
+    Future heuristics will consider:
+      - Signal duration vs minimum for each band
+      - Crossing density (crossings per second)
+      - Outlier rejection fraction
+      - Carrier SNR
+      - Carrier frequency vs expected range
+      - Deviation signal stationarity
+    """
+    confidence = {}
+    for key in aes6_keys:
+        confidence[key] = "high"
+    return confidence
+
+
 def analyze(pcm_data, sample_rate, channel=0):
     """
     Run the full analysis pipeline on PCM data.
@@ -572,6 +593,7 @@ def analyze(pcm_data, sample_rate, channel=0):
             freq = freq[trim_start:end_idx]
 
     # Outlier rejection
+    n_rejected = 0
     _status("Rejecting outliers...")
     f_median = np.median(freq)
     mad = np.median(np.abs(freq - f_median))
@@ -641,6 +663,20 @@ def analyze(pcm_data, sample_rate, channel=0):
     _lap("Spectrum")
     _status("Complete")
 
+    # Confidence assessment for each metric.
+    # Levels: "high", "medium", "low".
+    # Future: actual heuristics (signal duration, crossing density,
+    # outlier fraction, carrier SNR, etc.) will set these per-metric.
+    confidence = _assess_confidence(
+        duration=duration,
+        n_crossings=len(crossing_times),
+        n_rejected=int(n_rejected),
+        f_est=f_est,
+        f_mean=f_mean,
+        output_rate=output_rate,
+        aes6_keys=list(aes6.keys()),
+    )
+
     return {
         # Deviation trace (for waveform display)
         't_uniform': t_uniform.tolist(),
@@ -656,6 +692,9 @@ def analyze(pcm_data, sample_rate, channel=0):
 
         # AES6 metrics
         'aes6': aes6,
+
+        # Per-metric confidence: mirrors aes6 keys with "high"/"medium"/"low"
+        'confidence': confidence,
 
         # Signal info
         'duration': float(duration),
