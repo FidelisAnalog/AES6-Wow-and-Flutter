@@ -11,7 +11,7 @@ Reference: `Docs/spa_architecture_spec.md` for full spec.
 
 ### 1.1 Project Scaffolding
 
-- `npm create vite@latest` — React + TypeScript template
+- `npm create vite@latest` — React template (plain JS/JSX, no TypeScript)
 - Install MUI: `@mui/material @emotion/react @emotion/styled`
 - Set up project structure:
   ```
@@ -21,23 +21,21 @@ Reference: `Docs/spa_architecture_spec.md` for full spec.
   │   └── python/
   │       └── wf_analyzer.py   # Python module (refactored from fg_analyze.py)
   ├── src/
-  │   ├── App.tsx
-  │   ├── main.tsx
+  │   ├── App.jsx
+  │   ├── main.jsx
   │   ├── config/
-  │   │   └── constants.ts     # all configurable constants
+  │   │   └── constants.js     # all configurable constants
   │   ├── components/
   │   │   └── ...
   │   ├── hooks/
   │   │   └── ...
   │   ├── services/
-  │   │   ├── pyBridge.ts      # JS↔Python bridge
-  │   │   └── audioLoader.ts   # file loading + pre-processing
-  │   ├── theme/
-  │   │   └── ...
-  │   └── types/
-  │       └── analysis.ts      # TypeScript types for pipeline results
+  │   │   ├── pyBridge.js      # JS↔Python bridge
+  │   │   └── audioLoader.js   # file loading + pre-processing
+  │   └── theme/
+  │       └── ...
   ├── index.html               # PyScript script tags loaded here
-  └── vite.config.ts
+  └── vite.config.js
   ```
 
 ### 1.2 Python Module Refactor
@@ -75,11 +73,13 @@ Refactor `fg_analyze.py` → `public/python/wf_analyzer.py`. Key changes:
       'aes6': {
           'peak_unweighted': float,
           'rms_unweighted': float,
+          'wow_unweighted_rms': float,
+          'flutter_unweighted_rms': float,
           'peak_weighted': float,
           'rms_weighted': float,
           'drift_rms': float,
-          'wow_rms': float,
-          'flutter_rms': float,
+          'wow_rms': float,           # from weighted signal
+          'flutter_rms': float,       # from weighted signal
       },
 
       # Signal info
@@ -144,7 +144,7 @@ Refactor `fg_analyze.py` → `public/python/wf_analyzer.py`. Key changes:
 
 **b) Copy `mini-coi.js`** from SJPlot/online into `public/`. This service worker injects COOP/COEP headers for SharedArrayBuffer support (required by Pyodide).
 
-**c) Create `src/services/pyBridge.ts`:**
+**c) Create `src/services/pyBridge.js`:**
   - Handles loading the Python module
   - Provides `analyzeFull(pcmData, sampleRate)` → Promise<AnalysisResult>
   - Provides `analyzeRegion(pcmData, sampleRate, startSec, endSec, cached)` → Promise<AnalysisResult>
@@ -153,7 +153,7 @@ Refactor `fg_analyze.py` → `public/python/wf_analyzer.py`. Key changes:
   - Exposes `isReady()` state
 
 **d) Data conversion pattern** (from SJPlot):
-  ```typescript
+  ```javascript
   // JS → Python
   window.js_pcm_data = pcmFloat32Array;
   window.js_sample_rate = sampleRate;
@@ -230,7 +230,7 @@ Reference: Browser-ABX Layout component.
 
 ### 2.4 JS Pre-processing Pipeline
 
-Create `src/services/audioLoader.ts`:
+Create `src/services/audioLoader.js`:
 
 **a) WAV Parser**
   - Parse RIFF/WAVE header
@@ -247,7 +247,7 @@ Create `src/services/audioLoader.ts`:
   - Carrier < 4.8 kHz → target 48 kHz
   - Skip if file sample rate ≤ target
   - Use `OfflineAudioContext` for anti-alias + decimation:
-    ```typescript
+    ```javascript
     const offlineCtx = new OfflineAudioContext(1, targetLength, targetRate);
     const source = offlineCtx.createBufferSource();
     source.buffer = audioBuffer;
@@ -266,7 +266,7 @@ Create `src/services/audioLoader.ts`:
     Benchmark with real files to find the right value.)
 
 **e) Duration cap enforcement**
-  - If trimmed signal > MAX_FILE_DURATION_SECONDS, reject with error
+  - If trimmed signal > MAX_FILE_DURATION_SECONDS, truncate to cap and show info notice ("File truncated to 120s for analysis.") — not an error, just inform the user
 
 **f) Channel extraction**
   - Default: left channel (index 0)
@@ -276,10 +276,9 @@ Create `src/services/audioLoader.ts`:
 
 - MUI Card/Paper component
 - Grid layout for metrics:
-  - DIN/IEC Unwtd Peak (2σ), RMS
-  - DIN/IEC Wtd Peak (2σ), RMS (JIS)
-  - Wow RMS, Flutter RMS
-  - Drift RMS (conditionally shown — hidden with message if region < 20s)
+  - DIN/IEC Unwtd Peak (2σ), RMS, Wow, Flutter
+  - DIN/IEC Wtd Peak (2σ), RMS (JIS), Wow, Flutter
+  - Drift (non-standard, conditionally shown — hidden with message if region < 20s)
   - Carrier Frequency
 - Tooltip/info icons on weighted vs unweighted (brief explanation of the standard)
 - Values formatted to 4 decimal places (matching prototype)
@@ -288,7 +287,7 @@ Create `src/services/audioLoader.ts`:
 
 ### 2.6 Constants Module
 
-Create `src/config/constants.ts` with all configurable values per spec. Single source of truth.
+Create `src/config/constants.js` with all configurable values per spec. Single source of truth.
 
 ### 2.7 Error Handling
 
@@ -309,14 +308,14 @@ Reference: Browser-ABX Waveform component. Adapt patterns, not code — the data
 Create `src/components/Waveform/`:
   ```
   Waveform/
-  ├── Waveform.tsx          # main container
-  ├── WaveformMain.tsx      # zoomed view (SVG or Canvas)
-  ├── WaveformOverview.tsx  # overview bar with viewport indicator
-  ├── LoopHandles.tsx       # draggable region selection handles
-  ├── TimeAxis.tsx          # time axis with labels
-  ├── DeviationAxis.tsx     # Y-axis (% deviation)
-  ├── useWaveformGestures.ts # zoom/pan gesture state machine
-  └── useWaveformData.ts    # data downsampling for display
+  ├── Waveform.jsx          # main container
+  ├── WaveformMain.jsx      # zoomed view (SVG or Canvas)
+  ├── WaveformOverview.jsx  # overview bar with viewport indicator
+  ├── LoopHandles.jsx       # draggable region selection handles
+  ├── TimeAxis.jsx          # time axis with labels
+  ├── DeviationAxis.jsx     # Y-axis (% deviation)
+  ├── useWaveformGestures.js # zoom/pan gesture state machine
+  └── useWaveformData.js    # data downsampling for display
   ```
 
 ### 3.2 Data Downsampling for Display
@@ -336,6 +335,10 @@ The deviation array can be large (e.g., 3000 points/sec × 120s = 360K points). 
 - Y-axis auto-scaled, symmetric around 0
 - X-axis in seconds
 - Theme-aware colors
+- **Fully responsive:** waveform and all interactive elements (handles, overview bar,
+  gestures) must reflow and scale correctly at any viewport width, from phone to
+  ultrawide. This is not a Phase 5 polish item — responsiveness is core to the
+  waveform component from day one.
 
 ### 3.4 Overview Bar
 
@@ -364,7 +367,7 @@ The deviation array can be large (e.g., 3000 points/sec × 120s = 360K points). 
 - Two draggable handles (start/end) visible in both overview and main view
 - Default: full file (handles at start and end)
 - Drag to select measurement region
-- **Hard enforce 10s minimum** — handles snap to maintain at least 10s selection
+- **Hard enforce 5s minimum** — handles snap to maintain at least 5s selection
 - Display selected duration near the handles or in a label
 - Visual shading of the selected region vs unselected
 - When region < 20s: show indicator that drift requires 20s
@@ -377,7 +380,19 @@ The deviation array can be large (e.g., 3000 points/sec × 120s = 360K points). 
 - Disabled during processing, shows spinner
 - If clicked while processing is in-flight, cancel previous and start new
 
-### 3.8 Harmonic Overlay Preparation
+### 3.8 Axis Scaling
+
+- **Default:** Y-axis auto-scaled to data range, symmetric around 0. This is the right
+  default and should not change.
+- **Future enhancement (custom scaling):** Per-plot user-selectable axis scaling. Needed
+  for visual comparison across files — setting a fixed Y-axis range (e.g., ±0.2%) makes
+  it easy to compare two measurements side by side. Build the waveform component so the
+  Y-axis range is a prop/state value (not hardcoded to auto), so custom scaling can be
+  wired up later without refactoring. Same pattern applies to spectrum Y-axis and all
+  optional plots. The UI for setting custom ranges comes later, but the components must
+  accept explicit axis bounds from the start.
+
+### 3.9 Harmonic Overlay Preparation
 
 - Waveform component accepts an optional `harmonicOverlays` prop (array of time-series data)
 - When present, renders additional traces on top of the deviation
@@ -395,11 +410,11 @@ The deviation array can be large (e.g., 3000 points/sec × 120s = 360K points). 
 Create `src/components/Spectrum/`:
   ```
   Spectrum/
-  ├── Spectrum.tsx           # main container
-  ├── SpectrumPlot.tsx       # the actual plot (SVG or charting lib)
-  ├── PeakMarkers.tsx        # clickable peak markers
-  ├── PeakChips.tsx          # mobile: scrollable chip list
-  └── useSpectrumData.ts     # data preparation
+  ├── Spectrum.jsx           # main container
+  ├── SpectrumPlot.jsx       # the actual plot (SVG or charting lib)
+  ├── PeakMarkers.jsx        # clickable peak markers
+  ├── PeakChips.jsx          # mobile: scrollable chip list
+  └── useSpectrumData.js     # data preparation
   ```
 
 ### 4.2 Spectrum Plot Rendering
@@ -409,6 +424,7 @@ Create `src/components/Spectrum/`:
 - Y-axis: % RMS/√Hz
 - Line plot of spectrum amplitude vs frequency
 - Theme-aware colors
+- Y-axis auto-scaled by default; accept explicit bounds prop for future custom scaling (see 3.8)
 
 ### 4.3 Peak Detection + Display
 
@@ -466,7 +482,7 @@ When peaks are selected:
 ### 5.1 FLAC Support
 
 - Install `@wasm-audio-decoders/flac`
-- In `audioLoader.ts`: detect FLAC by file header (fLaC magic bytes) or extension
+- In `audioLoader.js`: detect FLAC by file header (fLaC magic bytes) or extension
 - Decode FLAC → PCM Float32Array using the WASM decoder
 - Feed into the same pre-processing pipeline as WAV
 - Reference: Browser-ABX FLAC integration
@@ -485,12 +501,25 @@ Create `src/components/AdvancedPanel/`:
 
 - MUI Accordion (collapsible)
 - **Channel selector:** L/R radio buttons, only shown for stereo files. Changing channel triggers full re-analysis.
-- **Motor parameters:**
+- **Transport type:** Turntable (default) or Tape deck. Core AES6 metrics are identical
+  for both — transport type only affects optional/contextual features.
+  - Turntable: RPM presets (33⅓, 45, 78), motor params (slots, poles), polar plot, motor
+    harmonic identification
+  - Tape deck: Speed presets (1⅞, 3¾, 7½, 15, 30 ips). No RPM in the traditional sense
+    (capstan RPM depends on capstan diameter which users rarely know). Motor params and
+    polar plot hidden by default. Motor harmonic ID not applicable — tape mechanisms have
+    different vibration sources (capstan bearing, pinch roller, idler).
+  - Custom/other: freeform use for any transport. Custom RPM always available.
+- **Motor parameters** (turntable only):
   - Motor slots (number input)
   - Motor poles (number input)
-  - RPM (number input, default 33.333)
-  - RPM auto-detect button: finds strongest sub-2 Hz peak in spectrum × 60. Shows detected value with confidence indicator. User can accept or override.
   - When motor params change, re-run harmonic identification on existing peaks (no re-processing needed — just re-labeling)
+- **RPM / rotation speed:**
+  - Numeric input with presets per transport type
+  - Turntable presets: 33.333, 45, 78
+  - Custom value always allowed (any transport, any speed — W&F applies to any rotating or moving media)
+  - Used for polar plot segmentation and motor harmonic identification
+  - RPM auto-detect button: finds strongest sub-2 Hz peak in spectrum × 60. Shows detected value with confidence indicator. User can accept or override.
 
 ### 5.4 Optional Plots
 
@@ -500,35 +529,53 @@ Create `src/components/OptionalPlots/`:
   - Area below spectrum where user can toggle additional views
   - MUI Accordion or button group to show/hide each plot
 
-**b) Polar Plot** (`PolarPlot.tsx`)
+**b) Polar Plot** (`PolarPlot.jsx`)
   - SVG-based polar coordinate rendering
   - 0.1% per radial division, 20 divisions
-  - Angular ticks at 45° intervals (0°–315°), labeled as platter position
+  - Angular ticks at 45° intervals (0°–315°), labeled as platter/capstan position
   - "0.1%/div" scale annotation box
   - User-selectable number of revolutions to display (input control)
   - Color-code each revolution (tab10 palette)
-  - Data: `inst_freq` array from Python, segment by revolution (using sec_per_rev = 60/RPM)
+  - Data: `inst_freq` array from Python, segment by revolution using nominal period (60/RPM)
+  - **Future: measured revolution period.** Nominal RPM (e.g., 33⅓ → 1.8s) drifts on real
+    transports. At 1–2 revolutions the error is negligible, but at higher counts cumulative
+    drift causes the plot to smear. Python module should provide a measured period (from
+    rotation fundamental or autocorrelation) to replace nominal RPM for segmentation.
+    Initially use nominal; add measured period when available from Python.
+  - **Future enhancement (harmonic markers on polar):** When spectrum peaks are selected
+    (Phase 4), indicate where each decomposed harmonic's energy lands on the polar plot.
+    E.g., if a 33 Hz slot-passing harmonic is selected, highlight the angular positions
+    where that component peaks. This connects the spectral view to the spatial/rotational
+    view — helps diagnose whether a harmonic is position-dependent or uniform around the
+    platter. Design details TBD; accept selected peaks as a prop so the data path exists.
 
-**c) Histogram** (`HistogramPlot.tsx`)
+**c) Histogram** (`HistogramPlot.jsx`)
   - SVG bar chart or use a charting lib
   - 256 bins
   - X-axis: % deviation, symmetric around 0, minimum ±0.1%
   - Y-axis: density
   - Center line at 0
+  - Accept explicit axis bounds props for future custom scaling (see 3.8)
 
 ### 5.5 Export / Download
 
-Create `src/services/exportService.ts`:
+Create `src/services/exportService.js`:
 
 **a) Individual plot downloads**
   - Each plot component exposes a `renderForExport()` method that produces a clean PNG
   - For the deviation waveform: **re-render** the selected region (or current view) as a presentation-quality static plot — not a screenshot
   - Use an offscreen canvas or SVG → canvas → PNG pipeline
-  - Proper axis labels, title, grid, consistent styling across all exports
+  - **Every exported plot must be presentation-ready and self-contained:**
+    - Title (e.g., "Deviation Trace — filename.wav")
+    - Measurement summary block: carrier freq, relevant AES6 metrics for that view
+    - Proper axis labels with units, grid lines, legend where applicable
+    - Consistent typography, spacing, and styling across all export types
+    - These are meant to go into reports and comparisons — they must look professional,
+      not like browser screenshots with a download button
 
 **b) Full test set download**
   - Generate multiple PNGs:
-    - Plot 1: selected region (or 10s default if no selection)
+    - Plot 1: selected region (or 5s default if no selection)
     - Plot 2: 60s view (or full file if < 60s)
     - Spectrum
     - Polar (if shown)
@@ -536,8 +583,19 @@ Create `src/services/exportService.ts`:
   - Bundle as individual downloads or a single ZIP (using JSZip or similar)
   - 60s maximum for any single deviation plot (legibility cap)
 
-**c) Download buttons**
-  - Small download icon on each plot component
+**c) Data export**
+  - Per-plot CSV/JSON download of the underlying data:
+    - Deviation waveform: time + deviation % columns (for the current view/selection)
+    - Spectrum: frequency + amplitude columns, plus peaks list
+    - Polar: per-revolution angle + deviation data
+    - Histogram: bin edges + counts
+    - AES6 metrics: JSON with all measurement values, carrier freq, file info
+  - "Export All Data" option: ZIP containing all of the above plus the plot PNGs
+  - Data files should be immediately usable — proper headers, units in column names,
+    metadata block at top of CSV (filename, carrier, sample rate, measurement region)
+
+**d) Download buttons**
+  - Small download icon on each plot component (menu: PNG or data)
   - "Download All" button somewhere accessible (header? stats panel?)
 
 ### 5.6 Embed Support
@@ -549,7 +607,8 @@ Create `src/services/exportService.ts`:
   - `?hidePanel=file,advanced,footer` — hide specific panels
 
 **b) postMessage API** (per spec):
-  - Inbound handler: `setTheme`, `loadFile`
+  - Inbound handler: `setTheme`, `loadFile`, `loadAudio`
+  - `loadAudio`: receive `{buffer: ArrayBuffer, fileName?: string}` — raw WAV or FLAC file bytes from host. SPA decodes using its own decoders (same code path as drag-drop). This ensures consistent decoding behavior regardless of input source, and the SPA controls the FLAC decoder implementation.
   - Outbound: `resize`, `ready`, `stateChange`, `results`, `error`
   - `resize`: send on mount, on panel expand/collapse, on window resize (use ResizeObserver)
   - `ready`: send when React + PyScript + all deps are fully loaded

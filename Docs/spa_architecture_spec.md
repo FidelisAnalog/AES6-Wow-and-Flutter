@@ -8,6 +8,12 @@ Single-page application for AES6-2008 (s2013) conformant wow & flutter analysis,
 
 Key differentiator: self-adaptive carrier detection and auto-tuned prefilter supporting carrier frequencies from 50 Hz to 3.15 kHz. No other open-source W&F analyzer handles carriers below ~1 kHz.
 
+### Transport Agnosticism
+
+The AES6-2008, DIN 45507, and IEC 60386 standards define W&F measurement methodology — they are transport-agnostic. The weighting filter, band definitions (wow/flutter/drift), and peak/RMS calculations are identical whether the source is a turntable, tape deck, or any other transport mechanism. The entire measurement pipeline (carrier detection → zero crossings → frequency extraction → AES6 metrics) produces valid, standards-compliant results regardless of transport type.
+
+Transport-specific features (polar plot, motor harmonic identification, RPM) are layered on top of the core pipeline and are optional. The UI must not bake in turntable assumptions — labels, controls, and optional features should adapt based on transport type selection (see Advanced Panel).
+
 ---
 
 ## Stack
@@ -110,10 +116,12 @@ Refactor `fg_analyze.py` into a clean module callable from PyScript. Single entr
     'aes6': {
         'peak_unweighted': float,   # %
         'rms_unweighted': float,    # %
+        'wow_unweighted_rms': float, # % (band-separated from unweighted signal)
+        'flutter_unweighted_rms': float, # %
         'peak_weighted': float,     # %
         'rms_weighted': float,      # %
         'drift_rms': float,         # %
-        'wow_rms': float,           # %
+        'wow_rms': float,           # % (band-separated from weighted signal)
         'flutter_rms': float,       # %
     },
 
@@ -171,14 +179,19 @@ Adapted from Browser-ABX waveform component UX patterns.
 - **2σ reference lines** — dashed horizontal lines at ±peak(2σ)
 - **Zero line** — center reference
 
+### Responsiveness
+
+The waveform and all interactive elements (handles, overview bar, gestures) must reflow and scale correctly at any viewport width, from phone to ultrawide. This is a core requirement, not a polish item.
+
 ### Axis Conventions
 
 - **X-axis:** Time (seconds)
-- **Y-axis:** Speed Deviation (%), symmetric around 0, auto-scaled
+- **Y-axis:** Speed Deviation (%), symmetric around 0, auto-scaled by default
+- **Future: custom axis scaling** — per-plot user-selectable Y-axis range for visual comparison across files. Setting a fixed range (e.g., ±0.2%) makes side-by-side comparison far easier. Components must accept explicit axis bounds as props from the start so this can be wired up without refactoring. Same pattern applies to spectrum, polar, and histogram.
 
 ### Measurement Region Constraints
 
-- **Hard minimum: 10 seconds** — loop handles snap to enforce this, user cannot select less
+- **Hard minimum: 5 seconds** — loop handles snap to enforce this, user cannot select less
 - **Drift threshold: 20 seconds** — if selected region < 20s, drift metric hidden and user informed that 20s must be selected for drift measurement
 - These thresholds are configurable constants defined in one place
 
@@ -232,11 +245,13 @@ Dedicated, always-visible panel showing AES6 metrics after analysis.
 |---|---|---|
 | DIN/IEC Unwtd Peak (2σ) | ±X.XXXX% | |
 | DIN/IEC Unwtd RMS | X.XXXX% | |
+| DIN/IEC Unwtd Wow | X.XXXX% | Band-separated from unweighted signal |
+| DIN/IEC Unwtd Flutter | X.XXXX% | Band-separated from unweighted signal |
 | DIN/IEC Wtd Peak (2σ) | ±X.XXXX% | |
 | DIN/IEC Wtd RMS (JIS) | X.XXXX% | JIS designation in label |
-| Wow RMS | X.XXXX% | |
-| Flutter RMS | X.XXXX% | |
-| Drift RMS | X.XXXX% | Hidden if region < 20s |
+| DIN/IEC Wtd Wow | X.XXXX% | Band-separated from weighted signal |
+| DIN/IEC Wtd Flutter | X.XXXX% | Band-separated from weighted signal |
+| Drift | X.XXXX% | Non-standard; hidden if region < 20s |
 | Carrier Frequency | XXX.X Hz | Detected carrier |
 
 - Tooltip/info icon on weighted vs unweighted explaining the standard
@@ -251,9 +266,13 @@ Expandable area below the spectrum. User chooses which to show.
 ### Polar Plot
 
 - 0.1% per radial division, 20 divisions
-- Angular ticks at 45° intervals (0°–315°, platter position)
+- Angular ticks at 45° intervals (0°–315°, platter/capstan position)
 - User-selectable number of revolutions to display
 - "0.1%/div" scale annotation
+- Revolution segmentation uses measured period from Python (not nominal RPM) — see note below
+- **Future:** When spectrum peaks are selected, indicate where each decomposed harmonic's energy lands on the polar plot (angular positions where the component peaks). Connects spectral and rotational views for diagnosing position-dependent vs uniform harmonics.
+
+**Revolution period accuracy:** Nominal RPM (e.g., 33⅓) gives a nominal period of 1.8s, but real turntable speed drifts. For 1–2 revolutions the error is negligible, but at higher revolution counts the cumulative drift causes the polar plot to smear. The Python module should provide a measured revolution period (from the rotation fundamental in the spectrum, or from the deviation signal autocorrelation) so the polar plot segments accurately. This is a future enhancement — use nominal RPM initially, add measured period when available.
 
 ### Deviation Distribution (Histogram)
 
@@ -271,8 +290,13 @@ Collapsible section.
 ### Controls
 
 - **Channel selector** (L/R) — shown for stereo files, default left
-- **Motor parameters** — slots, poles, RPM inputs (optional)
-- **RPM auto-detect** — attempt to identify rotation fundamental from spectrum (strongest sub-2Hz peak × 60). Show confidence indicator; user can override.
+- **Transport type** — turntable (default) or tape deck. Controls which parameters are shown, what labels are used, and which optional features are available. The core AES6 metrics are identical for both — transport type only affects optional/contextual features.
+  - **Turntable:** RPM presets (33⅓, 45, 78), motor params (slots, poles), polar plot available, motor harmonic identification available
+  - **Tape deck:** Speed presets (1⅞, 3¾, 7½, 15, 30 ips). Tape has linear speed, not RPM — though the capstan rotates, its RPM depends on capstan diameter which users rarely know. Motor params and polar plot hidden by default (polar could map to capstan revolution if RPM is manually entered, but this is niche). Motor harmonic identification not applicable in the turntable sense — tape mechanisms have different vibration sources (capstan bearing, pinch roller, idler).
+  - **Custom / other:** Allow freeform use for any transport. Custom RPM input always available regardless of transport type.
+- **Motor parameters** (turntable only) — slots, poles inputs (optional). When motor params change, re-run harmonic identification on existing peaks (no re-processing needed — just re-labeling).
+- **RPM / rotation speed** — numeric input with presets per transport type. Custom value always allowed (any transport, any speed — W&F applies to any mechanism). Used for polar plot segmentation and motor harmonic identification.
+- **RPM auto-detect** — attempt to identify rotation fundamental from spectrum (strongest sub-2Hz peak × 60). Show confidence indicator; user can accept or override.
 
 ---
 
@@ -299,7 +323,7 @@ Collapsible section.
    - Implemented via `OfflineAudioContext` which provides native anti-alias filtering before decimation. No custom filter needed.
    - Validated: 48 kHz is measurement-accurate for carriers up to 4.8 kHz. No known test signals exceed 3.15 kHz.
 4. **Non-signal trimming** — detect RMS from file midpoint, scan head and tail, cut where energy drops X dB below midpoint RMS. Removes noise/hum before and after carrier signal.
-5. **Duration cap** — 120 seconds (configurable constant). Reject files exceeding cap.
+5. **Duration cap** — 120 seconds (configurable constant). If file exceeds cap after trimming, truncate to 120s and inform the user (not an error — just a notice).
 
 ---
 
@@ -307,18 +331,31 @@ Collapsible section.
 
 ### Individual Plot Downloads
 
-Each visible plot downloadable as PNG:
+Each visible plot downloadable as PNG and/or raw data:
 - Deviation waveform — **re-rendered as presentation plot** for the current selected region (not a screenshot of the interactive view)
 - Spectrum — clean plot matching prototype styling
 - Polar — clean plot
 - Histogram — clean plot
+
+**Every exported plot must be self-contained and presentation-ready:**
+- Title (e.g., "Deviation Trace — filename.wav")
+- Measurement summary block (carrier freq, relevant AES6 metrics)
+- Proper axis labels with units, grid lines, legend where applicable
+- Consistent typography and styling across all exports
+- These go into reports — they must look professional
+
+**Data export (per-plot and bundled):**
+- Per-plot CSV/JSON download of the underlying numerical data
+- Deviation: time + deviation % columns; Spectrum: freq + amplitude + peaks; Polar: per-revolution angle + deviation; Histogram: bin edges + counts; Metrics: JSON with all values
+- Data files include metadata header (filename, carrier, sample rate, measurement region)
+- "Export All Data" option: ZIP with all data files + plot PNGs
 
 ### Full Test Set Download
 
 Mirrors prototype's two-plot approach:
 
 - **If region selected:** Plot 1 = selected region, Plot 2 = 60s view
-- **If no region selected:** Plot 1 = 10s view, Plot 2 = 60s view
+- **If no region selected:** Plot 1 = 5s view, Plot 2 = 60s view
 - Plus spectrum, polar, histogram
 - **60s maximum** for any single deviation plot in the download set (legibility cap)
 - All plots styled consistently (presentation quality)
@@ -359,6 +396,7 @@ Mirrors prototype's two-plot approach:
 |---|---|---|
 | `setTheme` | `'dark' \| 'light' \| 'system'` | Override theme at runtime |
 | `loadFile` | `{url: string}` | Load file from URL |
+| `loadAudio` | `{buffer: ArrayBuffer, fileName?: string}` | Send raw WAV or FLAC file bytes directly. SPA decodes using its own decoders (same path as drag-drop, just a different input source). |
 
 **Outbound (app → host):**
 
@@ -385,11 +423,11 @@ Mirrors prototype's two-plot approach:
 | Condition | Message |
 |---|---|
 | No carrier detected | "No carrier frequency detected. Ensure the file contains a test signal or motor FG signal." |
-| File too short (< 10s after trimming) | "Signal too short for valid W&F measurement. At least 10 seconds of carrier signal required." |
+| File too short (< 5s after trimming) | "Signal too short for valid W&F measurement. At least 5 seconds of carrier signal required." |
 | Unsupported format | "Unsupported file format. Please use WAV or FLAC." |
 | Sample rate too low | "Sample rate too low (minimum 44.1 kHz)." |
 | Carrier too high for sample rate | "Detected carrier ({freq} Hz) requires a higher sample rate than the file provides after downsampling. Cannot process." |
-| File exceeds duration cap | "File exceeds maximum duration (120s). Please trim the file." |
+| File exceeds duration cap | "File truncated to 120s for analysis." (info notice, not error) |
 | PyScript failed to load | "Analysis engine failed to load. Try refreshing the page." |
 | Processing failure | "Analysis failed: {top-line from exception}" + expandable trace |
 
@@ -449,7 +487,9 @@ const CONFIG = {
 
 - **Multi-file comparison** — load two files, show metrics side-by-side (before/after motor service, etc.)
 - **RPM auto-detection** — attempt from rotation fundamental; needs reliability assessment
-- **Additional export formats** — CSV/JSON data export
+- **Custom axis scaling UI** — per-plot controls for setting explicit Y-axis ranges (components accept bounds from the start; the UI comes later)
+- **Harmonic markers on polar plot** — show where selected spectrum peaks land angularly on the polar view
+- **Measured revolution period** — Python module computes actual revolution period from rotation fundamental or autocorrelation, replacing nominal RPM for polar plot segmentation. Critical for accuracy at high revolution counts where cumulative drift from nominal RPM causes smearing.
 
 ---
 
@@ -457,5 +497,5 @@ const CONFIG = {
 
 | Project | What to borrow |
 |---|---|
-| Browser-ABX | Layout/theme architecture, waveform UX (zoom/pan/gestures/loop handles), FLAC decoder integration, embed patterns |
-| SJPlot/online | PyScript/Pyodide integration pattern, JS↔Python data bridge via window globals, mini-coi.js, file loading (drag-drop + URL), error display with stack trace |
+| Browser-ABX (https://acidtest.io) | Layout/theme architecture, waveform UX (zoom/pan/gestures/loop handles), FLAC decoder integration, embed patterns |
+| SJPlot/online (https://sjplot.com/online) | PyScript/Pyodide integration pattern, JS↔Python data bridge via window globals, mini-coi.js, file loading (drag-drop + URL), error display with stack trace |
