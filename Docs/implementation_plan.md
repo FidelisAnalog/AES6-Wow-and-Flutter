@@ -1,0 +1,617 @@
+# AES6 W&F Analyzer — Implementation Plan
+
+Detailed phase-by-phase implementation plans for the VS Code agent to execute against.
+Reference: `Docs/spa_architecture_spec.md` for full spec.
+
+---
+
+## Phase 1: Prove the Bridge
+
+**Goal:** End-to-end proof that React + PyScript + the Python pipeline works in-browser. Drop a WAV file, get metrics displayed. No polish, no fancy UI — just prove the architecture.
+
+### 1.1 Project Scaffolding
+
+- `npm create vite@latest` — React + TypeScript template
+- Install MUI: `@mui/material @emotion/react @emotion/styled`
+- Set up project structure:
+  ```
+  /
+  ├── public/
+  │   ├── mini-coi.js          # service worker for CORS isolation
+  │   └── python/
+  │       └── wf_analyzer.py   # Python module (refactored from fg_analyze.py)
+  ├── src/
+  │   ├── App.tsx
+  │   ├── main.tsx
+  │   ├── config/
+  │   │   └── constants.ts     # all configurable constants
+  │   ├── components/
+  │   │   └── ...
+  │   ├── hooks/
+  │   │   └── ...
+  │   ├── services/
+  │   │   ├── pyBridge.ts      # JS↔Python bridge
+  │   │   └── audioLoader.ts   # file loading + pre-processing
+  │   ├── theme/
+  │   │   └── ...
+  │   └── types/
+  │       └── analysis.ts      # TypeScript types for pipeline results
+  ├── index.html               # PyScript script tags loaded here
+  └── vite.config.ts
+  ```
+
+### 1.2 Python Module Refactor
+
+Refactor `fg_analyze.py` → `public/python/wf_analyzer.py`. Key changes:
+
+**a) Remove all matplotlib / plotting code.** The module returns data only.
+
+**b) Remove CLI / argparse.** Module is called programmatically.
+
+**c) Remove file I/O.** Module receives PCM data + sample rate, not file paths.
+  - Current: `load_wav(filepath)` reads from disk
+  - New: `analyze(pcm_array, sample_rate, channel=0)` receives data directly
+
+**d) Structured return.** `analyze()` returns a dict with everything the front-end needs:
+  ```python
+  {
+      # Deviation trace (for waveform display)
+      't_uniform': ndarray,        # time grid (seconds)
+      'deviation_pct': ndarray,    # speed deviation (%)
+
+      # Spectrum data
+      'spectrum_freqs': ndarray,   # modulation frequencies (Hz)
+      'spectrum_amplitude': ndarray, # % RMS/√Hz
+      'harmonic_peaks': [          # top N peaks, sorted by amplitude
+          {'freq': float, 'amplitude': float, 'rms': float, 'index': int},
+      ],
+
+      # Polar + histogram source data
+      'inst_freq': ndarray,        # instantaneous frequency
+      'f_mean': float,             # mean carrier frequency
+      'output_rate': float,        # deviation signal sample rate
+
+      # AES6 metrics
+      'aes6': {
+          'peak_unweighted': float,
+          'rms_unweighted': float,
+          'peak_weighted': float,
+          'rms_weighted': float,
+          'drift_rms': float,
+          'wow_rms': float,
+          'flutter_rms': float,
+      },
+
+      # Signal info
+      'duration': float,
+      'carrier_freq': float,
+      'wf_peak_2sigma': float,
+      'wf_peak_to_peak': float,
+
+  }
+  ```
+
+**e) Add spectrum computation** to `analyze()`. Move the FFT + peak detection logic from the old `plot_results()` into the pipeline:
+  ```python
+  def compute_spectrum(deviation_pct, output_rate, max_peaks=12, peak_threshold=0.08):
+      """Compute spectrum and detect harmonic peaks. Returns (freqs, amplitude, peaks_list)."""
+  ```
+
+**f) Add region re-processing entry point:**
+  ```python
+  def analyze_region(pcm_array, sample_rate, start_sec, end_sec):
+      """
+      Re-run the full pipeline on a sub-region of the audio.
+      No caching of carrier/coefficients — carrier detection and filter
+      design are trivially fast (microseconds). The expensive parts
+      (zero-crossing detection, sinc interpolation) must re-run regardless.
+      Same code path as analyze(), just on a shorter segment.
+      """
+  ```
+  This function:
+  - Extracts the audio segment: `pcm_array[int(start_sec * sr):int(end_sec * sr)]`
+  - Runs the full pipeline: carrier detect → prefilter → crossings → frequency → trim → outlier → interp → metrics
+  - Returns metrics, spectrum, polar/histogram data for the region (same structure as `analyze()` return)
+
+**g) Motor harmonic labeling.** Keep the identification logic but make it optional:
+  ```python
+  def identify_motor_harmonics(peaks, motor_slots, motor_poles, rpm, freq_resolution):
+      """Tag peaks with motor harmonic identities. Returns annotated peaks list."""
+  ```
+  The identification logic itself is not finalized — the classification rules will evolve.
+  Peak data structure must cleanly separate immutable detection data (freq, amplitude, RMS,
+  FFT bin index) from a flexible/nullable identity layer (source label, harmonic order,
+  matched fundamental, etc.) with peak index mapping. Identity fields are optional/nullable
+  and the identity schema must be loose enough to accommodate changes to the classification
+  logic without touching the detection data or the front-end contract.
+  Labels are re-computed when motor params change — no re-processing needed.
+
+**h) Keep all signal processing constants internal** (PREFILTER_BW_FACTOR, OUTLIER_THRESH_PCT, etc.). Not exposed to the front-end.
+
+**i) Ensure Pyodide compatibility:**
+  - `scipy` is available in Pyodide
+  - `numpy` is available in Pyodide
+  - Remove any `os` / `sys` / filesystem dependencies
+  - Replace `print()` statements with a callback or logging mechanism that can push status to JS
+
+### 1.3 PyScript Integration
+
+**a) Add PyScript to `index.html`:**
+  ```html
+  <link rel="stylesheet" href="https://pyscript.net/releases/2025.8.1/core.css">
+  <script type="module" src="https://pyscript.net/releases/2025.8.1/core.js"></script>
+  ```
+
+**b) Copy `mini-coi.js`** from SJPlot/online into `public/`. This service worker injects COOP/COEP headers for SharedArrayBuffer support (required by Pyodide).
+
+**c) Create `src/services/pyBridge.ts`:**
+  - Handles loading the Python module
+  - Provides `analyzeFull(pcmData, sampleRate)` → Promise<AnalysisResult>
+  - Provides `analyzeRegion(pcmData, sampleRate, startSec, endSec, cached)` → Promise<AnalysisResult>
+  - Converts JS typed arrays ↔ Python via Pyodide proxy `.to_py()` / `.toJs()`
+  - Handles status callbacks from Python (progress updates)
+  - Exposes `isReady()` state
+
+**d) Data conversion pattern** (from SJPlot):
+  ```typescript
+  // JS → Python
+  window.js_pcm_data = pcmFloat32Array;
+  window.js_sample_rate = sampleRate;
+  window.pyAnalyze();
+
+  // Python → JS (in Python code)
+  from js import window
+  pcm = window.js_pcm_data.to_py()
+  result = analyze(np.array(pcm), window.js_sample_rate)
+  window.updateResults(result_as_json)
+  ```
+
+### 1.4 Minimal File Input
+
+- Simple drag-drop zone (MUI Box + event handlers)
+- WAV parsing: `FileReader.readAsArrayBuffer()` → extract PCM as Float32Array
+  - Parse RIFF header, extract sample rate, channels, bit depth
+  - Convert to Float32Array
+- No FLAC yet, no URL loading, no pre-processing (downsample, trim) — just raw WAV → Python
+
+### 1.5 Minimal Stats Display
+
+- MUI Card showing the AES6 metrics dict returned from Python
+- No styling, just prove data flows end-to-end
+
+### 1.6 Validation
+
+- Drop a known WAV file (from `Data/` directory)
+- Compare metrics output against the Python CLI script output
+- They must match exactly (same pipeline, same data)
+
+---
+
+## Phase 2: File Input + Stats + Theme
+
+**Goal:** Production-quality file input, stats panel, and theme system. The app should look good and handle files properly, even though the waveform isn't built yet.
+
+### 2.1 Theme System
+
+Reference: Browser-ABX theme implementation.
+
+- Create `src/theme/` with dark and light palettes
+- Borrow Browser-ABX color palette as starting point
+- OS preference detection via `prefers-color-scheme` media query
+- Manual toggle (Ctrl+Shift+T keyboard shortcut)
+- Query param override: `?theme=dark|light|system`
+- postMessage override: `setTheme` message from host
+- Priority: postMessage > query param > manual toggle > OS preference
+- Theme context provider wrapping the app
+
+### 2.2 Layout System
+
+Reference: Browser-ABX Layout component.
+
+- Create `src/components/Layout/` — Layout container component
+- Panel order defined as props/config (trivial to rearrange):
+  1. Header
+  2. File Input
+  3. Stats
+  4. Waveform (placeholder for Phase 3)
+  5. Spectrum (placeholder for Phase 4)
+  6. Advanced (collapsible)
+  7. Optional Plots (expandable)
+  8. Footer
+- Gutter control: normal mode vs embed mode (drop gutters)
+- `?embed=true` query param hides header/footer, compact layout
+
+### 2.3 File Input Panel
+
+- Drag-drop zone with visual feedback (dragover highlight, file icon)
+- Click-to-browse button (`<input type="file" accept=".wav,.flac">`)
+- File info display after load (name, duration, sample rate, channels)
+- Error display for rejected files (wrong format, too short, etc.)
+
+### 2.4 JS Pre-processing Pipeline
+
+Create `src/services/audioLoader.ts`:
+
+**a) WAV Parser**
+  - Parse RIFF/WAVE header
+  - Extract PCM data as Float32Array
+  - Handle 16-bit, 24-bit, 32-bit int and 32-bit float formats
+
+**b) Quick carrier detection (JS-side, for downsample decision only)**
+  - FFT on first 2 seconds of audio
+  - Find dominant spectral peak above 20 Hz
+  - This is only used to choose downsample target — Python runs its own detection
+
+**c) Adaptive downsample**
+  - Carrier < 500 Hz → target 10 kHz
+  - Carrier < 4.8 kHz → target 48 kHz
+  - Skip if file sample rate ≤ target
+  - Use `OfflineAudioContext` for anti-alias + decimation:
+    ```typescript
+    const offlineCtx = new OfflineAudioContext(1, targetLength, targetRate);
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offlineCtx.destination);
+    source.start();
+    const rendered = await offlineCtx.startRendering();
+    ```
+  - Validate: if carrier > 4.8 kHz and original SR is only 48 kHz, error
+
+**d) Non-signal trimming**
+  - Compute RMS of middle 10% of file (guaranteed to be signal)
+  - Scan from head: find first point where running RMS (short window) exceeds threshold (midpoint RMS − X dB, configurable)
+  - Scan from tail: same in reverse
+  - Trim with minimal margin (e.g., ~50–100ms before onset — err on the side of trimming
+    close to the signal. The concern is cutting into signal, not leaving dead air.
+    Benchmark with real files to find the right value.)
+
+**e) Duration cap enforcement**
+  - If trimmed signal > MAX_FILE_DURATION_SECONDS, reject with error
+
+**f) Channel extraction**
+  - Default: left channel (index 0)
+  - If stereo, extract selected channel (advanced panel controls this later)
+
+### 2.5 Stats Panel
+
+- MUI Card/Paper component
+- Grid layout for metrics:
+  - DIN/IEC Unwtd Peak (2σ), RMS
+  - DIN/IEC Wtd Peak (2σ), RMS (JIS)
+  - Wow RMS, Flutter RMS
+  - Drift RMS (conditionally shown — hidden with message if region < 20s)
+  - Carrier Frequency
+- Tooltip/info icons on weighted vs unweighted (brief explanation of the standard)
+- Values formatted to 4 decimal places (matching prototype)
+- Placeholder state when no file loaded
+- Loading state during processing
+
+### 2.6 Constants Module
+
+Create `src/config/constants.ts` with all configurable values per spec. Single source of truth.
+
+### 2.7 Error Handling
+
+- Error display component (top-line message + expandable stack trace)
+- Wire up all pre-processing error states from the spec
+- Python pipeline errors caught and displayed
+
+---
+
+## Phase 3: Deviation Waveform
+
+**Goal:** Interactive deviation waveform with zoom, pan, overview bar, and loop handles. This is the core UI and the most complex component.
+
+### 3.1 Waveform Component Architecture
+
+Reference: Browser-ABX Waveform component. Adapt patterns, not code — the data format is different (deviation % vs audio samples).
+
+Create `src/components/Waveform/`:
+  ```
+  Waveform/
+  ├── Waveform.tsx          # main container
+  ├── WaveformMain.tsx      # zoomed view (SVG or Canvas)
+  ├── WaveformOverview.tsx  # overview bar with viewport indicator
+  ├── LoopHandles.tsx       # draggable region selection handles
+  ├── TimeAxis.tsx          # time axis with labels
+  ├── DeviationAxis.tsx     # Y-axis (% deviation)
+  ├── useWaveformGestures.ts # zoom/pan gesture state machine
+  └── useWaveformData.ts    # data downsampling for display
+  ```
+
+### 3.2 Data Downsampling for Display
+
+The deviation array can be large (e.g., 3000 points/sec × 120s = 360K points). Can't render all as SVG paths at all zoom levels.
+
+- `useWaveformData` hook: given the current viewport (time start/end) and pixel width, prepare the deviation array for display
+- This is measurement data, not orientation — visual fidelity loss is not acceptable at any zoom level
+- Reference Browser-ABX waveform rendering approach (not SJPlot — SJPlot's downsampling is acceptable there because it's for orientation only)
+- At high zoom, render every point; at low zoom, use min/max per bin to preserve peaks while reducing point count, but ensure the visual output is faithful to the data
+
+### 3.3 Main Waveform View
+
+- Renders the deviation trace for the current viewport
+- Horizontal zero line
+- 2σ reference lines (±peak 2σ, dashed red)
+- Y-axis auto-scaled, symmetric around 0
+- X-axis in seconds
+- Theme-aware colors
+
+### 3.4 Overview Bar
+
+- Compact view of entire file's deviation trace
+- Viewport indicator (semi-transparent rectangle showing what the main view displays)
+- Draggable edge handles on viewport indicator for resizing the view
+- Click to jump viewport
+- Drag viewport indicator body to pan
+
+### 3.5 Zoom and Pan
+
+`useWaveformGestures` hook — state machine for gesture handling:
+
+- **Mouse wheel:** zoom in/out centered on cursor position
+- **Click-drag on main view:** pan horizontally
+- **Pinch-zoom:** mobile/trackpad zoom
+- **Double-click:** reset to full view
+- Clamp viewport to signal boundaries
+- Smooth animation for zoom transitions (required)
+- Momentum scroll/pan (required)
+
+### 3.6 Loop Handles (Measurement Region)
+
+`LoopHandles` component:
+
+- Two draggable handles (start/end) visible in both overview and main view
+- Default: full file (handles at start and end)
+- Drag to select measurement region
+- **Hard enforce 10s minimum** — handles snap to maintain at least 10s selection
+- Display selected duration near the handles or in a label
+- Visual shading of the selected region vs unselected
+- When region < 20s: show indicator that drift requires 20s
+
+### 3.7 Measure Button
+
+- Button appears when loop handles are moved from default (full file)
+- Or always present, labeled "Re-measure" when region differs from last measured
+- Triggers `analyzeRegion()` call to Python
+- Disabled during processing, shows spinner
+- If clicked while processing is in-flight, cancel previous and start new
+
+### 3.8 Harmonic Overlay Preparation
+
+- Waveform component accepts an optional `harmonicOverlays` prop (array of time-series data)
+- When present, renders additional traces on top of the deviation
+- When harmonics are overlaid, reduce deviation trace opacity
+- Actual harmonic data comes from Phase 4
+
+---
+
+## Phase 4: Spectrum + Harmonics
+
+**Goal:** Spectrum plot with selectable harmonic peaks that overlay on the deviation waveform.
+
+### 4.1 Spectrum Plot Component
+
+Create `src/components/Spectrum/`:
+  ```
+  Spectrum/
+  ├── Spectrum.tsx           # main container
+  ├── SpectrumPlot.tsx       # the actual plot (SVG or charting lib)
+  ├── PeakMarkers.tsx        # clickable peak markers
+  ├── PeakChips.tsx          # mobile: scrollable chip list
+  └── useSpectrumData.ts     # data preparation
+  ```
+
+### 4.2 Spectrum Plot Rendering
+
+- Log frequency X-axis, starting at 0.4 Hz
+- X-axis ticks at: 0.5, 1, 2, 5, 10, 20, 50 Hz
+- Y-axis: % RMS/√Hz
+- Line plot of spectrum amplitude vs frequency
+- Theme-aware colors
+
+### 4.3 Peak Detection + Display
+
+- Top 8–12 peaks auto-tagged (from Python data)
+- Colored triangle markers (▼) at each peak, matching prototype style
+- Peak label: frequency (Hz) + RMS (%)
+- Motor harmonic labels when motor params provided (from Advanced panel)
+
+### 4.4 Peak Selection — Desktop / Tablet
+
+- Click/tap on a peak marker to toggle selection
+- Selected: highlighted color, full opacity
+- Unselected: dimmed
+- Multi-select supported
+
+### 4.5 Peak Selection — Phone
+
+- Scrollable horizontal chip/pill list below the spectrum
+- Each chip shows frequency + RMS
+- Tap to toggle selection
+- Synchronized with peak markers on the plot
+
+### 4.6 Harmonic Overlay on Waveform
+
+When peaks are selected:
+1. For each selected peak, extract the corresponding frequency component from the deviation signal
+   - Bandpass filter the deviation signal around the peak frequency (narrow band)
+   - This produces a time-series showing that harmonic's contribution
+2. Pass these time-series to the Waveform component as `harmonicOverlays`
+3. Each overlay rendered in the peak's assigned color
+4. Deviation datum (main trace) becomes less prominent (reduced opacity)
+
+**Implementation note:** Harmonic extraction is already solved in `Utilities/fg_harmonics.py`.
+  The `extract_harmonic()` function uses 4th-order Butterworth SOS bandpass via `sosfiltfilt`
+  with smart bandwidth selection (80% of f_rot to avoid sideband capture, 0.3 Hz floor,
+  or 5% of center freq when f_rot is unknown). The overlay pattern (total signal dimmed,
+  components colored by identity) is also already implemented. Refactor this into the
+  Python module as-is — do not rewrite. Batch call for multiple harmonics to avoid
+  JS↔Python round-trip overhead.
+
+### 4.7 Motor Harmonic Identification
+
+- When motor params (slots, poles, RPM) are provided via Advanced panel:
+  - Call `identify_motor_harmonics()` on the peaks list
+  - Color-code by source: Rotation (red), Electrical (green), Slot passing (purple), Torque ripple (orange)
+  - Unidentified peaks get sequential colors from a neutral palette
+- When motor params not provided: all peaks use the neutral palette
+
+---
+
+## Phase 5: Polish + Remaining Features
+
+**Goal:** Everything else. Each sub-item is relatively independent and can be done in any order.
+
+### 5.1 FLAC Support
+
+- Install `@wasm-audio-decoders/flac`
+- In `audioLoader.ts`: detect FLAC by file header (fLaC magic bytes) or extension
+- Decode FLAC → PCM Float32Array using the WASM decoder
+- Feed into the same pre-processing pipeline as WAV
+- Reference: Browser-ABX FLAC integration
+
+### 5.2 URL File Loading
+
+- Parse `?file=<URL>` query parameter on app load
+- `fetch()` the URL → ArrayBuffer → process as WAV or FLAC
+- Dropbox URL handling: auto-append `?dl=1` if dropbox.com URL detected
+- Show loading indicator during fetch
+- Error handling for CORS failures, 404, etc.
+
+### 5.3 Advanced Panel
+
+Create `src/components/AdvancedPanel/`:
+
+- MUI Accordion (collapsible)
+- **Channel selector:** L/R radio buttons, only shown for stereo files. Changing channel triggers full re-analysis.
+- **Motor parameters:**
+  - Motor slots (number input)
+  - Motor poles (number input)
+  - RPM (number input, default 33.333)
+  - RPM auto-detect button: finds strongest sub-2 Hz peak in spectrum × 60. Shows detected value with confidence indicator. User can accept or override.
+  - When motor params change, re-run harmonic identification on existing peaks (no re-processing needed — just re-labeling)
+
+### 5.4 Optional Plots
+
+Create `src/components/OptionalPlots/`:
+
+**a) Expandable container**
+  - Area below spectrum where user can toggle additional views
+  - MUI Accordion or button group to show/hide each plot
+
+**b) Polar Plot** (`PolarPlot.tsx`)
+  - SVG-based polar coordinate rendering
+  - 0.1% per radial division, 20 divisions
+  - Angular ticks at 45° intervals (0°–315°), labeled as platter position
+  - "0.1%/div" scale annotation box
+  - User-selectable number of revolutions to display (input control)
+  - Color-code each revolution (tab10 palette)
+  - Data: `inst_freq` array from Python, segment by revolution (using sec_per_rev = 60/RPM)
+
+**c) Histogram** (`HistogramPlot.tsx`)
+  - SVG bar chart or use a charting lib
+  - 256 bins
+  - X-axis: % deviation, symmetric around 0, minimum ±0.1%
+  - Y-axis: density
+  - Center line at 0
+
+### 5.5 Export / Download
+
+Create `src/services/exportService.ts`:
+
+**a) Individual plot downloads**
+  - Each plot component exposes a `renderForExport()` method that produces a clean PNG
+  - For the deviation waveform: **re-render** the selected region (or current view) as a presentation-quality static plot — not a screenshot
+  - Use an offscreen canvas or SVG → canvas → PNG pipeline
+  - Proper axis labels, title, grid, consistent styling across all exports
+
+**b) Full test set download**
+  - Generate multiple PNGs:
+    - Plot 1: selected region (or 10s default if no selection)
+    - Plot 2: 60s view (or full file if < 60s)
+    - Spectrum
+    - Polar (if shown)
+    - Histogram (if shown)
+  - Bundle as individual downloads or a single ZIP (using JSZip or similar)
+  - 60s maximum for any single deviation plot (legibility cap)
+
+**c) Download buttons**
+  - Small download icon on each plot component
+  - "Download All" button somewhere accessible (header? stats panel?)
+
+### 5.6 Embed Support
+
+**a) Query params:**
+  - `?embed=true` — compact mode: hide header/footer, drop gutters
+  - `?theme=dark|light|system` — initial theme
+  - `?file=<URL>` — auto-load file (already in 5.2)
+  - `?hidePanel=file,advanced,footer` — hide specific panels
+
+**b) postMessage API** (per spec):
+  - Inbound handler: `setTheme`, `loadFile`
+  - Outbound: `resize`, `ready`, `stateChange`, `results`, `error`
+  - `resize`: send on mount, on panel expand/collapse, on window resize (use ResizeObserver)
+  - `ready`: send when React + PyScript + all deps are fully loaded
+  - `stateChange`: send on each state transition
+  - `results`: send AES6 metrics after processing completes
+  - `error`: send on any error
+
+**c) Layout adjustments:**
+  - Drop gutters (padding/margins) in embed mode
+  - Scroll containment: prevent scroll bubbling to host
+
+### 5.7 Mobile Responsiveness
+
+- Test all components at 375px width (iPhone SE)
+- Panels stack vertically, full width
+- Waveform: touch gestures (pinch-zoom, swipe pan) — already in Phase 3
+- Spectrum: chip list for peak selection instead of click-on-peaks
+- Stats panel: may need to reflow from grid to stacked
+- Consider hiding optional plots by default on mobile
+- Advanced panel: full-width accordion
+
+### 5.8 Processing Feedback
+
+- If processing takes > ~1s, show a progress indicator
+- Python module can push status messages via callback:
+  ```python
+  def set_status(msg):
+      from js import window
+      if hasattr(window, 'updateProcessingStatus'):
+          window.updateProcessingStatus(msg)
+  ```
+- Status messages: "Detecting carrier...", "Filtering signal...", "Finding zero crossings...", "Computing metrics..."
+- Display as text below or on top of the processing spinner
+
+---
+
+## Dependency Order
+
+```
+Phase 1 ──→ Phase 2 ──→ Phase 3 ──→ Phase 4
+                              │
+                              └──→ Phase 5 (items are independent,
+                                           can be done in any order)
+```
+
+Phase 1 is the critical path. Everything builds on it. Phase 2 builds the real UI shell. Phases 3 and 4 are the core interactive features. Phase 5 items are independent and can be parallelized or reordered based on priority.
+
+---
+
+## Testing Strategy
+
+- **Python module:** Validate against CLI script output using known test files. Metrics must match exactly.
+- **Pre-processing:** Test downsample with known carrier files. Verify carrier detection accuracy. Verify trimming doesn't cut signal.
+- **Waveform:** Visual testing. Verify zoom/pan math with known data ranges.
+- **Integration:** End-to-end test with reference WAV files comparing SPA output to CLI output.
+
+---
+
+## Known Risks
+
+1. **PyScript/Pyodide load time** — Pyodide is ~20MB. First load will be slow. Subsequent loads use browser cache. May want a loading screen with progress.
+2. **scipy in Pyodide** — scipy is available but heavy. First import may take several seconds.
+3. **Zero-crossing loop performance in Pyodide** — The `find_zero_crossings` function uses a Python loop with `brentq` per crossing. This will be slower in Pyodide than native Python. For a 120s file at 3 kHz carrier (~360K crossings), this could be slow. May need to optimize or explore vectorization.
+4. **Memory** — Large files at high sample rates can consume significant memory in-browser. The adaptive downsampling helps significantly.
+5. **OfflineAudioContext availability** — Should be available in all modern browsers. Need to test Safari specifically.
