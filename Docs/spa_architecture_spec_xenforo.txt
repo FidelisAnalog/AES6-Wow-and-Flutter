@@ -1,0 +1,673 @@
+[HEADING=1]AES6 Wow & Flutter Analyzer — SPA Architecture Spec[/HEADING]
+
+Working title: [B]AES6 W&F Analyzer[/B]
+
+[HEADING=2]Overview[/HEADING]
+
+Single-page application for AES6-2008 (s2013) conformant wow & flutter analysis, compatible with DIN 45507 and IEC 60386. Converts the [ICODE]fg_analyze.py[/ICODE] prototype into an interactive web tool.
+
+Key differentiator: self-adaptive carrier detection and auto-tuned prefilter supporting carrier frequencies from 50 Hz to 3.15 kHz. No other open-source W&F analyzer handles carriers below ~1 kHz.
+
+[HEADING=3]Transport Agnosticism[/HEADING]
+
+The AES6-2008, DIN 45507, and IEC 60386 standards define W&F measurement methodology — they are transport-agnostic. The weighting filter, band definitions (wow/flutter/drift), and peak/RMS calculations are identical whether the source is a turntable, tape deck, or any other transport mechanism. The entire measurement pipeline (carrier detection → zero crossings → frequency extraction → AES6 metrics) produces valid, standards-compliant results regardless of transport type.
+
+Transport-specific features (polar plot, motor harmonic identification, RPM) are layered on top of the core pipeline and are optional. The UI must not bake in turntable assumptions — labels, controls, and optional features should adapt based on transport type selection (see Advanced Panel).
+
+[HEADING=2]Stack[/HEADING]
+
+[TABLE]
+[TR]
+[TH]Layer[/TH]
+[TH]Technology[/TH]
+[/TR]
+[TR]
+[TD]Front-end framework[/TD]
+[TD]React + Vite[/TD]
+[/TR]
+[TR]
+[TD]Component library[/TD]
+[TD]MUI (Material UI)[/TD]
+[/TR]
+[TR]
+[TD]Signal processing[/TD]
+[TD]PyScript / Pyodide (Python in-browser)[/TD]
+[/TR]
+[TR]
+[TD]FLAC decoding[/TD]
+[TD]@wasm-audio-decoders/flac (WASM, bit-perfect)[/TD]
+[/TR]
+[TR]
+[TD]Waveform rendering[/TD]
+[TD]SVG or Canvas (adapted from Browser-ABX patterns)[/TD]
+[/TR]
+[TR]
+[TD]Plot rendering[/TD]
+[TD]Custom SVG / lightweight charting (TBD per plot type)[/TD]
+[/TR]
+[TR]
+[TD]CORS isolation[/TD]
+[TD]mini-coi.js service worker (for SharedArrayBuffer / PyScript)[/TD]
+[/TR]
+[/TABLE]
+
+[HEADING=2]Data Flow[/HEADING]
+
+[CODE]
+File Input (JS)
+  ├── Drag-drop / click-browse / URL param
+  ├── FLAC → WASM decode to PCM
+  └── WAV → FileReader → Uint8Array
+        │
+        ▼
+Pre-processing (JS)
+  ├── Sample rate check (44.1 kHz minimum)
+  ├── Quick FFT carrier detection (dominant spectral peak)
+  ├── Adaptive downsample via OfflineAudioContext:
+  │     Carrier < ~500 Hz  → downsample to 10 kHz
+  │     Carrier < ~4.8 kHz → downsample to 48 kHz
+  │     (OfflineAudioContext provides native anti-alias filtering)
+  ├── Non-signal trimming (RMS threshold from file midpoint)
+  └── Duration cap enforcement (120s configurable)
+        │
+        ▼  (downsampled PCM)
+        │
+Python Pipeline (PyScript/Pyodide) — full file, one call
+  ├── Carrier detection (own FFT — pipeline stands on its own)
+  ├── Bandpass prefilter (auto-tuned, coefficients cached)
+  ├── Zero-crossing detection (sinc interp + Brent's method)
+  ├── Per-cycle frequency extraction
+  ├── Edge trimming + outlier rejection
+  ├── Uniform grid interpolation
+  ├── AES6 weighting + band separation
+  └── Returns structured data (not images)
+        │
+        ▼
+JS Rendering
+  ├── Deviation waveform (interactive, zoomable)
+  ├── Spectrum with selectable harmonics
+  ├── Stats panel (AES6 metrics)
+  ├── Polar plot (optional)
+  └── Histogram (optional)
+[/CODE]
+
+[HEADING=3]Region Re-processing[/HEADING]
+
+When the user selects a measurement region via loop handles:
+
+[LIST=1]
+[*]Full-file deviation waveform [B]does not change[/B] — it's from the initial run
+[*]Python pipeline [B]re-runs on the raw audio segment[/B] for the selected region
+[*]Full pipeline re-runs on the segment (carrier detection and filter design are trivially fast — no caching needed)
+[*]Zero-crossing detection and downstream processing [B]must re-run[/B] — this is the expensive part
+[*]All metrics, spectrum, polar, and histogram update to reflect the selected region
+[*]UI shows processing indicator during re-run
+[/LIST]
+
+The pipeline cost scales linearly with region length. Not instant, but manageable for 10–60s regions.
+
+[HEADING=2]Python Module Architecture[/HEADING]
+
+Refactor [ICODE]fg_analyze.py[/ICODE] into a clean module callable from PyScript. Single entry point for full analysis, returns all data needed for JS rendering.
+
+[HEADING=3]Return Data Structure[/HEADING]
+
+[CODE=python]
+{
+    # Display data (from initial full-file run)
+    't_uniform': [],          # uniform time grid (seconds)
+    'deviation_pct': [],      # speed deviation (%) on uniform grid
+
+    # Spectrum data
+    'spectrum_freqs': [],     # modulation frequencies (Hz)
+    'spectrum_amplitude': [], # amplitude spectral density (% RMS/√Hz)
+    'harmonic_peaks': [       # auto-detected peaks, sorted by amplitude
+        {'freq': float, 'amplitude': float, 'rms': float, 'index': int},
+        ...
+    ],
+
+    # Polar plot data
+    'inst_freq': [],          # instantaneous frequency array
+    'f_mean': float,          # mean carrier frequency
+
+    # Histogram data
+    # (deviation_pct array reused)
+
+    # AES6 metrics
+    'aes6': {
+        'peak_unweighted': float,   # %
+        'rms_unweighted': float,    # %
+        'wow_unweighted_rms': float, # % (band-separated from unweighted signal)
+        'flutter_unweighted_rms': float, # %
+        'peak_weighted': float,     # %
+        'rms_weighted': float,      # %
+        'drift_rms': float,         # %
+        'wow_rms': float,           # % (band-separated from weighted signal)
+        'flutter_rms': float,       # %
+    },
+
+    # Signal info
+    'fs': int,                # sample rate
+    'f_mean': float,          # detected carrier frequency
+    'output_rate': float,     # deviation signal sample rate
+    'duration': float,        # signal duration (seconds)
+
+    'carrier_freq': float,    # detected carrier frequency
+}
+[/CODE]
+
+[HEADING=3]Region Re-processing Entry Point[/HEADING]
+
+Separate function that accepts raw audio segment, runs the full pipeline (carrier detection and filter design are trivially fast — no caching needed), returns the same structure minus the full-file display data.
+
+[HEADING=2]UI Layout[/HEADING]
+
+Panel-based layout using a Layout container component. Panel order is a prop/config — rearranging is trivial.
+
+[HEADING=3]Panel Order[/HEADING]
+
+[LIST=1]
+[*][B]Header[/B] — app title, theme toggle, about/info
+[*][B]File Input[/B] — drag-drop zone, click-browse button, URL input
+[*][B]Stats Panel[/B] — AES6 metrics (always visible after analysis)
+[*][B]Deviation Waveform[/B] — primary interactive view (always visible after analysis)
+[*][B]Spectrum[/B] — harmonic spectrum with selectable peaks (always visible after analysis)
+[*][B]Advanced Panel[/B] — collapsible (channel selector, motor params, RPM)
+[*][B]Optional Plots[/B] — expandable area for polar and histogram
+[*][B]Footer[/B] — attribution, links
+[/LIST]
+
+[HEADING=3]Layout Container[/HEADING]
+
+[LIST]
+[*]Theme-driven colors (dark/light)
+[*]Configurable panel sections (show/hide, reorder via props)
+[*]Gutter control for embed mode (drop gutters when embedded)
+[*]Responsive — mobile-aware, may shed features on small screens
+[/LIST]
+
+[HEADING=2]Deviation Waveform (Primary View)[/HEADING]
+
+Adapted from Browser-ABX waveform component UX patterns.
+
+[HEADING=3]Features[/HEADING]
+
+[LIST]
+[*][B]Overview bar[/B] at top showing full-file deviation trace with viewport indicator
+[*][B]Main view[/B] showing zoomed region with pan and zoom
+[*][B]Loop handles[/B] for measurement region selection (visible in both overview and main view)
+[*][B]Zoom/pan gestures[/B] — mouse wheel zoom, click-drag pan, pinch-zoom on mobile
+[*][B]Harmonic overlay[/B] — selected harmonics from spectrum rendered on the deviation trace; when active, the deviation datum becomes less prominent
+[*][B]2σ reference lines[/B] — dashed horizontal lines at ±peak(2σ)
+[*][B]Zero line[/B] — center reference
+[/LIST]
+
+[HEADING=3]Responsiveness[/HEADING]
+
+The waveform and all interactive elements (handles, overview bar, gestures) must reflow and scale correctly at any viewport width, from phone to ultrawide. This is a core requirement, not a polish item.
+
+[HEADING=3]Axis Conventions[/HEADING]
+
+[LIST]
+[*][B]X-axis:[/B] Time (seconds)
+[*][B]Y-axis:[/B] Speed Deviation (%), symmetric around 0, auto-scaled by default
+[*][B]Future: custom axis scaling[/B] — per-plot user-selectable Y-axis range for visual comparison across files. Setting a fixed range (e.g., ±0.2%) makes side-by-side comparison far easier. Components must accept explicit axis bounds as props from the start so this can be wired up without refactoring. Same pattern applies to spectrum, polar, and histogram.
+[/LIST]
+
+[HEADING=3]Measurement Region Constraints[/HEADING]
+
+[LIST]
+[*][B]Hard minimum: 5 seconds[/B] — loop handles snap to enforce this, user cannot select less
+[*][B]Drift threshold: 20 seconds[/B] — if selected region < 20s, drift metric hidden and user informed that 20s must be selected for drift measurement
+[*]These thresholds are configurable constants defined in one place
+[/LIST]
+
+[HEADING=3]Region Change Behavior[/HEADING]
+
+The user will adjust loop handles multiple times before settling on a region. The re-processing flow must account for this:
+
+[LIST]
+[*]Region selection does [B]not[/B] auto-trigger processing on handle release — a human won't nail the region on the first try
+[*]Explicit [B]"Measure"[/B] button (or similar) to trigger re-processing of the selected region
+[*]If re-processing is in flight and user triggers again, the in-flight run is [B]cancelled[/B] and the new region is processed
+[*]Show processing indicator during re-run
+[*]Stats, spectrum, polar, histogram all update to selected region
+[*]Deviation waveform itself does not change (always shows initial full-file result)
+[/LIST]
+
+[HEADING=2]Spectrum Plot[/HEADING]
+
+Always visible below the deviation waveform.
+
+[HEADING=3]Display[/HEADING]
+
+[LIST]
+[*][B]X-axis:[/B] Modulation frequency (Hz), log scale, starting at 0.4 Hz
+[*][B]X-axis ticks:[/B] 0.5, 1, 2, 5, 10, 20, 50 Hz
+[*][B]Y-axis:[/B] Speed Deviation (% RMS/√Hz)
+[*]Top 8–12 harmonic peaks auto-tagged with colored markers
+[/LIST]
+
+[HEADING=3]Harmonic Selection[/HEADING]
+
+[LIST]
+[*][B]Desktop:[/B] Click directly on labeled peaks to toggle selection on/off. Selected peaks highlighted, unselected dimmed.
+[*][B]Mobile:[/B] Scrollable chip/pill list below the spectrum for selection (click-to-select on small screens is impractical)
+[*]Selected harmonics are overlaid on the deviation waveform
+[*]When harmonics are overlaid, the deviation datum becomes less prominent
+[/LIST]
+
+[HEADING=3]Motor Harmonic Labeling[/HEADING]
+
+When motor parameters are provided (via Advanced panel):
+[LIST]
+[*]Peaks are identified as rotation fundamental, electrical, slot passing, torque ripple
+[*]Color-coded by source type (same scheme as prototype)
+[*]When motor params not provided, peaks still detected but unlabeled
+[/LIST]
+
+[HEADING=2]Stats Panel[/HEADING]
+
+Dedicated, always-visible panel showing AES6 metrics after analysis.
+
+[HEADING=3]Metrics Displayed[/HEADING]
+
+[TABLE]
+[TR]
+[TH]Label[/TH]
+[TH]Value[/TH]
+[TH]Notes[/TH]
+[/TR]
+[TR]
+[TD]DIN/IEC Unwtd Peak (2σ)[/TD]
+[TD]±X.XXXX%[/TD]
+[TD][/TD]
+[/TR]
+[TR]
+[TD]DIN/IEC Unwtd RMS[/TD]
+[TD]X.XXXX%[/TD]
+[TD][/TD]
+[/TR]
+[TR]
+[TD]DIN/IEC Unwtd Wow[/TD]
+[TD]X.XXXX%[/TD]
+[TD]Band-separated from unweighted signal[/TD]
+[/TR]
+[TR]
+[TD]DIN/IEC Unwtd Flutter[/TD]
+[TD]X.XXXX%[/TD]
+[TD]Band-separated from unweighted signal[/TD]
+[/TR]
+[TR]
+[TD]DIN/IEC Wtd Peak (2σ)[/TD]
+[TD]±X.XXXX%[/TD]
+[TD][/TD]
+[/TR]
+[TR]
+[TD]DIN/IEC Wtd RMS (JIS)[/TD]
+[TD]X.XXXX%[/TD]
+[TD]JIS designation in label[/TD]
+[/TR]
+[TR]
+[TD]DIN/IEC Wtd Wow[/TD]
+[TD]X.XXXX%[/TD]
+[TD]Band-separated from weighted signal[/TD]
+[/TR]
+[TR]
+[TD]DIN/IEC Wtd Flutter[/TD]
+[TD]X.XXXX%[/TD]
+[TD]Band-separated from weighted signal[/TD]
+[/TR]
+[TR]
+[TD]Drift[/TD]
+[TD]X.XXXX%[/TD]
+[TD]Non-standard; hidden if region < 20s[/TD]
+[/TR]
+[TR]
+[TD]Carrier Frequency[/TD]
+[TD]XXX.X Hz[/TD]
+[TD]Detected carrier[/TD]
+[/TR]
+[/TABLE]
+
+[LIST]
+[*]Tooltip/info icon on weighted vs unweighted explaining the standard
+[*]Updates when measurement region changes (after Python re-processing)
+[/LIST]
+
+[HEADING=2]Optional Plots[/HEADING]
+
+Expandable area below the spectrum. User chooses which to show.
+
+[HEADING=3]Polar Plot[/HEADING]
+
+[LIST]
+[*]0.1% per radial division, 20 divisions
+[*]Angular ticks at 45° intervals (0°–315°, platter/capstan position)
+[*]User-selectable number of revolutions to display
+[*]"0.1%/div" scale annotation
+[*]Revolution segmentation uses measured period from Python (not nominal RPM) — see note below
+[*][B]Future:[/B] When spectrum peaks are selected, indicate where each decomposed harmonic's energy lands on the polar plot (angular positions where the component peaks). Connects spectral and rotational views for diagnosing position-dependent vs uniform harmonics.
+[/LIST]
+
+[B]Revolution period accuracy:[/B] Nominal RPM (e.g., 33⅓) gives a nominal period of 1.8s, but real turntable speed drifts. For 1–2 revolutions the error is negligible, but at higher revolution counts the cumulative drift causes the polar plot to smear. The Python module should provide a measured revolution period (from the rotation fundamental in the spectrum, or from the deviation signal autocorrelation) so the polar plot segments accurately. This is a future enhancement — use nominal RPM initially, add measured period when available.
+
+[HEADING=3]Deviation Distribution (Histogram)[/HEADING]
+
+[LIST]
+[*]X-axis: Speed Deviation (%), symmetric around 0
+[*]X-axis minimum range: ±0.1%
+[*]Y-axis: Density
+[*]256 bins
+[/LIST]
+
+[HEADING=2]Advanced Panel[/HEADING]
+
+Collapsible section.
+
+[HEADING=3]Controls[/HEADING]
+
+[LIST]
+[*][B]Channel selector[/B] (L/R) — shown for stereo files, default left
+[*][B]Transport type[/B] — turntable (default) or tape deck. Controls which parameters are shown, what labels are used, and which optional features are available. The core AES6 metrics are identical for both — transport type only affects optional/contextual features.
+[LIST]
+[*][B]Turntable:[/B] RPM presets (33⅓, 45, 78), motor params (slots, poles), polar plot available, motor harmonic identification available
+[*][B]Tape deck:[/B] Speed presets (1⅞, 3¾, 7½, 15, 30 ips). Tape has linear speed, not RPM — though the capstan rotates, its RPM depends on capstan diameter which users rarely know. Motor params and polar plot hidden by default (polar could map to capstan revolution if RPM is manually entered, but this is niche). Motor harmonic identification not applicable in the turntable sense — tape mechanisms have different vibration sources (capstan bearing, pinch roller, idler).
+[*][B]Custom / other:[/B] Allow freeform use for any transport. Custom RPM input always available regardless of transport type.
+[/LIST]
+[*][B]Motor parameters[/B] (turntable only) — slots, poles inputs (optional). When motor params change, re-run harmonic identification on existing peaks (no re-processing needed — just re-labeling).
+[*][B]RPM / rotation speed[/B] — numeric input with presets per transport type. Custom value always allowed (any transport, any speed — W&F applies to any mechanism). Used for polar plot segmentation and motor harmonic identification.
+[*][B]RPM auto-detect[/B] — attempt to identify rotation fundamental from spectrum (strongest sub-2Hz peak × 60). Show confidence indicator; user can accept or override.
+[/LIST]
+
+[HEADING=2]File Input[/HEADING]
+
+[HEADING=3]Methods[/HEADING]
+
+[LIST=1]
+[*][B]Drag-and-drop[/B] — primary UX, drop zone in File Input panel
+[*][B]Click-to-browse[/B] — fallback file picker button (important for mobile)
+[*][B]URL parameter[/B] — [ICODE]?file=<URL>[/ICODE] for sharing/demos. Dropbox support with [ICODE]?dl=1[/ICODE] auto-append.
+[/LIST]
+
+[HEADING=3]Supported Formats[/HEADING]
+
+[LIST]
+[*][B]WAV[/B] — direct PCM extraction
+[*][B]FLAC[/B] — WASM decoder (@wasm-audio-decoders/flac) for bit-perfect decode to PCM
+[/LIST]
+
+[HEADING=3]Pre-processing (JS, before Python)[/HEADING]
+
+[LIST=1]
+[*][B]Sample rate check[/B] — 44.1 kHz minimum, reject below
+[*][B]Quick carrier detection (JS-side, for downsample decision only)[/B] — FFT on first 2s of raw audio to find dominant spectral peak. Used solely to choose the downsample target rate. Python pipeline runs its own independent carrier detection — the pipeline is proven and stands on its own.
+[*][B]Adaptive downsample[/B] — target rate chosen by detected carrier frequency:
+[LIST]
+[*]Carrier < ~500 Hz → 10 kHz (e.g., motor FG signals)
+[*]Carrier < ~4.8 kHz → 48 kHz (e.g., test records at 3/3.15 kHz)
+[*]Implemented via [ICODE]OfflineAudioContext[/ICODE] which provides native anti-alias filtering before decimation. No custom filter needed.
+[*]Validated: 48 kHz is measurement-accurate for carriers up to 4.8 kHz. No known test signals exceed 3.15 kHz.
+[/LIST]
+[*][B]Non-signal trimming[/B] — detect RMS from file midpoint, scan head and tail, cut where energy drops X dB below midpoint RMS. Removes noise/hum before and after carrier signal.
+[*][B]Duration cap[/B] — 120 seconds (configurable constant). If file exceeds cap after trimming, truncate to 120s and inform the user (not an error — just a notice).
+[/LIST]
+
+[HEADING=2]Export / Download[/HEADING]
+
+[HEADING=3]Individual Plot Downloads[/HEADING]
+
+Each visible plot downloadable as PNG and/or raw data:
+[LIST]
+[*]Deviation waveform — [B]re-rendered as presentation plot[/B] for the current selected region (not a screenshot of the interactive view)
+[*]Spectrum — clean plot matching prototype styling
+[*]Polar — clean plot
+[*]Histogram — clean plot
+[/LIST]
+
+[B]Every exported plot must be self-contained and presentation-ready:[/B]
+[LIST]
+[*]Title (e.g., "Deviation Trace — filename.wav")
+[*]Measurement summary block (carrier freq, relevant AES6 metrics)
+[*]Proper axis labels with units, grid lines, legend where applicable
+[*]Consistent typography and styling across all exports
+[*]These go into reports — they must look professional
+[/LIST]
+
+[B]Data export (per-plot and bundled):[/B]
+[LIST]
+[*]Per-plot CSV/JSON download of the underlying numerical data
+[*]Deviation: time + deviation % columns; Spectrum: freq + amplitude + peaks; Polar: per-revolution angle + deviation; Histogram: bin edges + counts; Metrics: JSON with all values
+[*]Data files include metadata header (filename, carrier, sample rate, measurement region)
+[*]"Export All Data" option: ZIP with all data files + plot PNGs
+[/LIST]
+
+[HEADING=3]Full Test Set Download[/HEADING]
+
+Mirrors prototype's two-plot approach:
+
+[LIST]
+[*][B]If region selected:[/B] Plot 1 = selected region, Plot 2 = 60s view
+[*][B]If no region selected:[/B] Plot 1 = 5s view, Plot 2 = 60s view
+[*]Plus spectrum, polar, histogram
+[*][B]60s maximum[/B] for any single deviation plot in the download set (legibility cap)
+[*]All plots styled consistently (presentation quality)
+[/LIST]
+
+[HEADING=2]Theme[/HEADING]
+
+[HEADING=3]Modes[/HEADING]
+
+[LIST]
+[*]Dark and light themes
+[*]OS preference detection (default)
+[*]Manual toggle (Ctrl+Shift+T, matching Browser-ABX)
+[*]Borrow Browser-ABX palette as starting point
+[/LIST]
+
+[HEADING=3]Priority (highest to lowest)[/HEADING]
+
+[LIST=1]
+[*]postMessage from host page (runtime override)
+[*]Query param [ICODE]?theme=dark|light|system[/ICODE] (initial load)
+[*]Manual toggle by user
+[*]OS preference detection (default fallback)
+[/LIST]
+
+[HEADING=2]Embed Support[/HEADING]
+
+[HEADING=3]Layout Adjustments[/HEADING]
+
+[LIST]
+[*]Drop gutters when embedded
+[*]Query param [ICODE]?embed=true[/ICODE] — sets sensible defaults (hide header/footer, compact layout)
+[*]Additional query params to control UI: hide specific panels, disable file input (host provides file via URL)
+[/LIST]
+
+[HEADING=3]postMessage API (defined contract)[/HEADING]
+
+[B]Inbound (host → app):[/B]
+
+[TABLE]
+[TR]
+[TH]Message Type[/TH]
+[TH]Payload[/TH]
+[TH]Description[/TH]
+[/TR]
+[TR]
+[TD][ICODE]setTheme[/ICODE][/TD]
+[TD][ICODE]'dark' | 'light' | 'system'[/ICODE][/TD]
+[TD]Override theme at runtime[/TD]
+[/TR]
+[TR]
+[TD][ICODE]loadFile[/ICODE][/TD]
+[TD][ICODE]{url: string}[/ICODE][/TD]
+[TD]Load file from URL[/TD]
+[/TR]
+[TR]
+[TD][ICODE]loadAudio[/ICODE][/TD]
+[TD][ICODE]{buffer: ArrayBuffer, fileName?: string}[/ICODE][/TD]
+[TD]Send raw WAV or FLAC file bytes directly. SPA decodes using its own decoders (same path as drag-drop).[/TD]
+[/TR]
+[/TABLE]
+
+[B]Outbound (app → host):[/B]
+
+[TABLE]
+[TR]
+[TH]Message Type[/TH]
+[TH]Payload[/TH]
+[TH]Description[/TH]
+[/TR]
+[TR]
+[TD][ICODE]resize[/ICODE][/TD]
+[TD][ICODE]{height: number}[/ICODE][/TD]
+[TD]Window height for iframe sizing[/TD]
+[/TR]
+[TR]
+[TD][ICODE]ready[/ICODE][/TD]
+[TD][ICODE]{}[/ICODE][/TD]
+[TD]App fully initialized (React + PyScript + all dependencies). Ready to accept files.[/TD]
+[/TR]
+[TR]
+[TD][ICODE]stateChange[/ICODE][/TD]
+[TD][ICODE]{state: 'initializing' | 'ready' | 'loading' | 'processing' | 'complete' | 'error'}[/ICODE][/TD]
+[TD]App/processing state[/TD]
+[/TR]
+[TR]
+[TD][ICODE]results[/ICODE][/TD]
+[TD][ICODE]{metrics: {...}, carrier: number}[/ICODE][/TD]
+[TD]AES6 metrics for host page consumption[/TD]
+[/TR]
+[TR]
+[TD][ICODE]error[/ICODE][/TD]
+[TD][ICODE]{message: string, trace?: string}[/ICODE][/TD]
+[TD]Error details[/TD]
+[/TR]
+[/TABLE]
+
+[HEADING=2]Error Handling[/HEADING]
+
+[HEADING=3]Approach[/HEADING]
+
+[LIST]
+[*]Top-line error message that is reasonably informative
+[*]Expandable dropdown with Python stack trace (matching SJPlot pattern)
+[*]No attempt to anticipate every edge case
+[/LIST]
+
+[HEADING=3]Common Error States[/HEADING]
+
+[TABLE]
+[TR]
+[TH]Condition[/TH]
+[TH]Message[/TH]
+[/TR]
+[TR]
+[TD]No carrier detected[/TD]
+[TD]"No carrier frequency detected. Ensure the file contains a test signal or motor FG signal."[/TD]
+[/TR]
+[TR]
+[TD]File too short (< 5s after trimming)[/TD]
+[TD]"Signal too short for valid W&F measurement. At least 5 seconds of carrier signal required."[/TD]
+[/TR]
+[TR]
+[TD]Unsupported format[/TD]
+[TD]"Unsupported file format. Please use WAV or FLAC."[/TD]
+[/TR]
+[TR]
+[TD]Sample rate too low[/TD]
+[TD]"Sample rate too low (minimum 44.1 kHz)."[/TD]
+[/TR]
+[TR]
+[TD]Carrier too high for sample rate[/TD]
+[TD]"Detected carrier ({freq} Hz) requires a higher sample rate than the file provides after downsampling. Cannot process."[/TD]
+[/TR]
+[TR]
+[TD]File exceeds duration cap[/TD]
+[TD]"File truncated to 120s for analysis." (info notice, not error)[/TD]
+[/TR]
+[TR]
+[TD]PyScript failed to load[/TD]
+[TD]"Analysis engine failed to load. Try refreshing the page."[/TD]
+[/TR]
+[TR]
+[TD]Processing failure[/TD]
+[TD]"Analysis failed: {top-line from exception}" + expandable trace[/TD]
+[/TR]
+[/TABLE]
+
+[HEADING=2]Configurable Constants[/HEADING]
+
+Defined in one place (e.g., [ICODE]constants.js[/ICODE] or config module):
+
+[CODE=javascript]
+const CONFIG = {
+  // Measurement constraints
+  MIN_MEASUREMENT_SECONDS: 10,      // hard minimum for loop selection
+  DRIFT_MIN_SECONDS: 20,            // minimum for drift calculation
+  MAX_FILE_DURATION_SECONDS: 120,   // file duration cap
+  MIN_SAMPLE_RATE: 44100,           // reject files below this
+
+  // Adaptive downsample targets
+  DOWNSAMPLE_LOW_CARRIER_HZ: 500,   // carriers below this → 10kHz target
+  DOWNSAMPLE_LOW_TARGET: 10000,      // target rate for low carriers
+  DOWNSAMPLE_HIGH_TARGET: 48000,     // target rate for higher carriers (up to 4.8kHz)
+
+  // Export defaults
+  EXPORT_DEFAULT_ZOOMED_SECONDS: 10,  // Plot 1 when no region selected
+  EXPORT_FULL_VIEW_SECONDS: 60,       // Plot 2 max / legibility cap
+
+  // Pre-processing
+  SIGNAL_TRIM_THRESHOLD_DB: -20,    // TBD — dB below midpoint RMS
+
+  // Spectrum
+  MAX_HARMONIC_PEAKS: 12,           // auto-tag top N peaks
+  SPECTRUM_PEAK_THRESHOLD: 0.08,    // fraction of max for peak detection
+
+  // Polar
+  POLAR_PCT_PER_DIV: 0.1,          // % deviation per radial tick
+  POLAR_DIVISIONS: 20,
+
+  // Histogram
+  HISTOGRAM_BINS: 256,
+  HISTOGRAM_MIN_RANGE_PCT: 0.1,    // minimum ±X% axis range
+};
+[/CODE]
+
+[HEADING=2]Mobile Considerations[/HEADING]
+
+[LIST]
+[*]Mobile is a requirement
+[*]May shed features for usability on small screens (TBD which features)
+[*]Harmonic selection via chip/pill list instead of click-on-peaks
+[*]Touch gestures for waveform zoom/pan (pinch, swipe)
+[*]Responsive panel layout — stack vertically, full-width panels
+[/LIST]
+
+[HEADING=2]Future Considerations (Not v1)[/HEADING]
+
+[LIST]
+[*][B]Multi-file comparison[/B] — load two files, show metrics side-by-side (before/after motor service, etc.)
+[*][B]RPM auto-detection[/B] — attempt from rotation fundamental; needs reliability assessment
+[*][B]Custom axis scaling UI[/B] — per-plot controls for setting explicit Y-axis ranges (components accept bounds from the start; the UI comes later)
+[*][B]Harmonic markers on polar plot[/B] — show where selected spectrum peaks land angularly on the polar view
+[*][B]Measured revolution period[/B] — Python module computes actual revolution period from rotation fundamental or autocorrelation, replacing nominal RPM for polar plot segmentation. Critical for accuracy at high revolution counts where cumulative drift from nominal RPM causes smearing.
+[/LIST]
+
+[HEADING=2]Reference Projects[/HEADING]
+
+[TABLE]
+[TR]
+[TH]Project[/TH]
+[TH]What to borrow[/TH]
+[/TR]
+[TR]
+[TD]Browser-ABX (https://acidtest.io)[/TD]
+[TD]Layout/theme architecture, waveform UX (zoom/pan/gestures/loop handles), FLAC decoder integration, embed patterns[/TD]
+[/TR]
+[TR]
+[TD]SJPlot/online (https://sjplot.com/online)[/TD]
+[TD]PyScript/Pyodide integration pattern, JS↔Python data bridge via window globals, mini-coi.js, file loading (drag-drop + URL), error display with stack trace[/TD]
+[/TR]
+[/TABLE]
