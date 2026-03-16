@@ -1,0 +1,200 @@
+/**
+ * Web Worker: loads Pyodide + wf_analyzer.py, runs analysis off main thread.
+ *
+ * Messages IN:
+ *   { type: 'analyze', pcm: ArrayBuffer, sampleRate: number }
+ *   { type: 'analyzeRegion', pcm: ArrayBuffer, sampleRate: number, startSec: number, endSec: number }
+ *
+ * Messages OUT:
+ *   { type: 'ready' }
+ *   { type: 'status', message: string }
+ *   { type: 'result', data: object }
+ *   { type: 'error', message: string, traceback: string }
+ */
+
+// Pin Pyodide version — update deliberately, not accidentally
+const PYODIDE_VERSION = '0.27.5';
+const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`;
+
+let pyodide = null;
+
+/**
+ * Bootstrap: load Pyodide, install packages, load wf_analyzer.py,
+ * wire up status callback. Posts { type: 'ready' } when done.
+ */
+async function init() {
+  try {
+    self.postMessage({ type: 'status', message: 'Loading Python runtime...' });
+
+    // Load Pyodide
+    importScripts(PYODIDE_URL);
+    pyodide = await self.loadPyodide();
+
+    self.postMessage({ type: 'status', message: 'Installing numpy + scipy...' });
+
+    // Install packages — these are Pyodide built-in wheels, no network fetch
+    await pyodide.loadPackage(['numpy', 'scipy']);
+
+    self.postMessage({ type: 'status', message: 'Loading analyzer module...' });
+
+    // Fetch wf_analyzer.py from the app's public directory.
+    // In dev (vite dev server) this is served from /python/wf_analyzer.py.
+    // In production build it's in the dist output.
+    const resp = await fetch('/python/wf_analyzer.py');
+    if (!resp.ok) {
+      throw new Error(`Failed to fetch wf_analyzer.py: ${resp.status} ${resp.statusText}`);
+    }
+    const moduleCode = await resp.text();
+
+    // Execute the module in Pyodide's global scope
+    pyodide.runPython(moduleCode);
+
+    // Wire up status callback: Python calls set_status_callback(fn).
+    // We create a JS function and pass it in — postMessage must be called
+    // from JS (not Python) because Python dicts are Pyodide proxies that
+    // can't be structurally cloned by postMessage.
+    const statusCallback = (msg) => {
+      self.postMessage({ type: 'status', message: String(msg) });
+    };
+    pyodide.globals.set('_js_status_callback', statusCallback);
+
+    pyodide.runPython(`
+import json as _json
+set_status_callback(_js_status_callback)
+`);
+
+    self.postMessage({ type: 'status', message: 'Python runtime ready' });
+    self.postMessage({ type: 'ready' });
+  } catch (err) {
+    self.postMessage({
+      type: 'error',
+      message: 'Failed to initialize Python runtime',
+      traceback: String(err?.stack || err),
+    });
+  }
+}
+
+/**
+ * Run full analysis. PCM arrives as ArrayBuffer (transferred from main thread).
+ * Python errors are caught at the Python level to get proper tracebacks.
+ * All postMessage calls happen from JS — Python dicts are Pyodide proxies
+ * that can't be structurally cloned by postMessage.
+ */
+function runAnalyze(pcmBuffer, sampleRate) {
+  const pcmArray = new Float64Array(pcmBuffer);
+
+  // Pass data into Python's global scope
+  pyodide.globals.set('_pcm_data', pcmArray);
+  pyodide.globals.set('_sample_rate', sampleRate);
+
+  // Python catches its own errors for full tracebacks.
+  // Stores result/error as JSON strings in globals for JS to retrieve.
+  pyodide.runPython(`
+import numpy as np
+import traceback as _tb
+
+_worker_result = None
+_worker_error = None
+
+try:
+    _pcm = np.asarray(_pcm_data.to_py(), dtype=np.float64)
+    _sr = int(_sample_rate)
+    _result = analyze(_pcm, _sr)
+    _worker_result = _json.dumps(_result)
+except Exception as _e:
+    _worker_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})
+finally:
+    del _pcm_data, _sample_rate
+`);
+
+  // Retrieve from Python globals and postMessage from JS
+  const resultJson = pyodide.globals.get('_worker_result');
+  const errorJson = pyodide.globals.get('_worker_error');
+
+  if (errorJson) {
+    const err = JSON.parse(errorJson);
+    self.postMessage({ type: 'error', message: err.message, traceback: err.traceback });
+  } else if (resultJson) {
+    self.postMessage({ type: 'result', data: resultJson });
+  }
+
+  // Clean up Python globals
+  pyodide.runPython('del _worker_result, _worker_error');
+}
+
+/**
+ * Run region analysis. Same pattern.
+ */
+function runAnalyzeRegion(pcmBuffer, sampleRate, startSec, endSec) {
+  const pcmArray = new Float64Array(pcmBuffer);
+
+  pyodide.globals.set('_pcm_data', pcmArray);
+  pyodide.globals.set('_sample_rate', sampleRate);
+  pyodide.globals.set('_region_start', startSec);
+  pyodide.globals.set('_region_end', endSec);
+
+  pyodide.runPython(`
+import numpy as np
+import traceback as _tb
+
+_worker_result = None
+_worker_error = None
+
+try:
+    _pcm = np.asarray(_pcm_data.to_py(), dtype=np.float64)
+    _sr = int(_sample_rate)
+    _start = float(_region_start)
+    _end = float(_region_end)
+    _result = analyze_region(_pcm, _sr, _start, _end)
+    _worker_result = _json.dumps(_result)
+except Exception as _e:
+    _worker_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})
+finally:
+    del _pcm_data, _sample_rate, _region_start, _region_end
+`);
+
+  const resultJson = pyodide.globals.get('_worker_result');
+  const errorJson = pyodide.globals.get('_worker_error');
+
+  if (errorJson) {
+    const err = JSON.parse(errorJson);
+    self.postMessage({ type: 'error', message: err.message, traceback: err.traceback });
+  } else if (resultJson) {
+    self.postMessage({ type: 'result', data: resultJson });
+  }
+
+  pyodide.runPython('del _worker_result, _worker_error');
+}
+
+// Message handler
+self.onmessage = (e) => {
+  const { type } = e.data;
+
+  if (!pyodide && type !== 'init') {
+    self.postMessage({
+      type: 'error',
+      message: 'Python runtime not loaded yet',
+      traceback: '',
+    });
+    return;
+  }
+
+  try {
+    if (type === 'analyze') {
+      runAnalyze(e.data.pcm, e.data.sampleRate);
+    } else if (type === 'analyzeRegion') {
+      runAnalyzeRegion(e.data.pcm, e.data.sampleRate, e.data.startSec, e.data.endSec);
+    }
+  } catch (err) {
+    // This catches JS-level errors (e.g. Pyodide proxy failures).
+    // Python-level errors are caught inside runPython above.
+    self.postMessage({
+      type: 'error',
+      message: String(err),
+      traceback: err?.stack || '',
+    });
+  }
+};
+
+// Start loading immediately
+init();
