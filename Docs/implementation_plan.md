@@ -29,8 +29,10 @@ Reference: `Docs/spa_architecture_spec.md` for full spec.
   │   │   └── ...
   │   ├── hooks/
   │   │   └── ...
+  │   ├── workers/
+  │   │   └── pyodideWorker.js # Web Worker: loads Pyodide + wf_analyzer.py
   │   ├── services/
-  │   │   ├── pyBridge.js      # JS↔Python bridge
+  │   │   ├── pyBridge.js      # main-thread ↔ Worker bridge (postMessage)
   │   │   └── audioLoader.js   # file loading + pre-processing
   │   └── theme/
   │       └── ...
@@ -134,36 +136,58 @@ Refactor `fg_analyze.py` → `public/python/wf_analyzer.py`. Key changes:
   - Remove any `os` / `sys` / filesystem dependencies
   - Replace `print()` statements with a callback or logging mechanism that can push status to JS
 
-### 1.3 PyScript Integration
+### 1.3 Pyodide Web Worker Integration
 
-**a) Add PyScript to `index.html`:**
-  ```html
-  <link rel="stylesheet" href="https://pyscript.net/releases/2025.8.1/core.css">
-  <script type="module" src="https://pyscript.net/releases/2025.8.1/core.js"></script>
-  ```
+**Pyodide runs in a dedicated Web Worker — the main thread must never block during analysis.**
+
+**a) Remove PyScript `<script type="py">` from `index.html`.** No PyScript tags on the main thread. Pyodide is loaded entirely within the Worker. Keep `mini-coi.js` for CORS isolation (SharedArrayBuffer support).
 
 **b) Copy `mini-coi.js`** from SJPlot/online into `public/`. This service worker injects COOP/COEP headers for SharedArrayBuffer support (required by Pyodide).
 
-**c) Create `src/services/pyBridge.js`:**
-  - Handles loading the Python module
+**c) Create `src/workers/pyodideWorker.js`:**
+  Web Worker that:
+  - Loads Pyodide via `importScripts('https://cdn.jsdelivr.net/pyodide/v0.27.x/full/pyodide.js')` (pin version)
+  - Loads micropip, installs numpy + scipy
+  - Fetches `wf_analyzer.py` from `/python/wf_analyzer.py` and executes it
+  - Wires up a status callback that posts `{type: 'status', message}` to main thread
+  - Listens for `postMessage` commands:
+    - `{type: 'analyze', pcm: ArrayBuffer, sampleRate: int}` → runs `analyze()`, posts `{type: 'result', data}` or `{type: 'error', message, traceback}`
+    - `{type: 'analyzeRegion', pcm: ArrayBuffer, sampleRate, startSec, endSec}` → runs `analyze_region()`
+  - Posts `{type: 'ready'}` when Pyodide + wf_analyzer.py are fully loaded
+  - PCM received as `ArrayBuffer` (transferred, zero-copy), converted to numpy array inside Worker
+
+**d) Create `src/services/pyBridge.js`:**
+  Main-thread interface:
+  - Spawns the Worker on init
   - Provides `analyzeFull(pcmData, sampleRate)` → Promise<AnalysisResult>
-  - Provides `analyzeRegion(pcmData, sampleRate, startSec, endSec, cached)` → Promise<AnalysisResult>
-  - Converts JS typed arrays ↔ Python via Pyodide proxy `.to_py()` / `.toJs()`
-  - Handles status callbacks from Python (progress updates)
-  - Exposes `isReady()` state
+  - Provides `analyzeRegion(pcmData, sampleRate, startSec, endSec)` → Promise<AnalysisResult>
+  - Sends PCM as `Transferable` ArrayBuffer (zero-copy to Worker)
+  - Dispatches Worker messages: `status` → `onStatus` callback, `result` → resolve Promise, `error` → `onError` callback / reject Promise
+  - Exposes `isReady()` state (true after Worker posts `ready`)
+  - Exposes `onStatus(cb)`, `onResult(cb)`, `onError(cb)` for UI binding
 
-**d) Data conversion pattern** (from SJPlot):
+**e) Data flow through Worker:**
   ```javascript
-  // JS → Python
-  window.js_pcm_data = pcmFloat32Array;
-  window.js_sample_rate = sampleRate;
-  window.pyAnalyze();
+  // Main thread → Worker (pyBridge.js)
+  const buffer = pcmFloat64Array.buffer;
+  worker.postMessage(
+    { type: 'analyze', pcm: buffer, sampleRate },
+    [buffer]  // transfer, not copy
+  );
 
-  // Python → JS (in Python code)
-  from js import window
-  pcm = window.js_pcm_data.to_py()
-  result = analyze(np.array(pcm), window.js_sample_rate)
-  window.updateResults(result_as_json)
+  // Worker → Main thread
+  // During processing: { type: 'status', message: 'Finding zero crossings...' }
+  // On completion:     { type: 'result', data: { ...analysisResult } }
+  // On error:          { type: 'error', message: '...', traceback: '...' }
+  ```
+
+  ```python
+  # Inside Worker (Python side)
+  import numpy as np
+  # PCM arrives as JS ArrayBuffer, convert via Pyodide
+  pcm = np.asarray(pcm_js_proxy, dtype=np.float64)
+  result = analyze(pcm, sample_rate)
+  # Result serialized as JSON, posted back to main thread
   ```
 
 ### 1.4 Minimal File Input

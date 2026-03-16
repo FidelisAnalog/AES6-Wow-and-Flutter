@@ -22,11 +22,11 @@ Transport-specific features (polar plot, motor harmonic identification, RPM) are
 |---|---|
 | Front-end framework | React + Vite |
 | Component library | MUI (Material UI) |
-| Signal processing | PyScript / Pyodide (Python in-browser) |
+| Signal processing | Pyodide (Python in-browser) in a **Web Worker** — never blocks main thread |
 | FLAC decoding | @wasm-audio-decoders/flac (WASM, bit-perfect) |
 | Waveform rendering | SVG or Canvas (adapted from Browser-ABX patterns) |
 | Plot rendering | Custom SVG / lightweight charting (TBD per plot type) |
-| CORS isolation | mini-coi.js service worker (for SharedArrayBuffer / PyScript) |
+| CORS isolation | mini-coi.js service worker (for SharedArrayBuffer / Pyodide) |
 
 ---
 
@@ -49,9 +49,13 @@ Pre-processing (JS)
   ├── Non-signal trimming (RMS threshold from file midpoint)
   └── Duration cap enforcement (120s configurable)
         │
-        ▼  (downsampled PCM)
+        ▼  (downsampled PCM via postMessage transferable)
         │
-Python Pipeline (PyScript/Pyodide) — full file, one call
+  ══════╪═══════════════════════════════════════════
+        │  Web Worker boundary (UI never blocks)
+  ══════╪═══════════════════════════════════════════
+        │
+Python Pipeline (Pyodide in Web Worker) — full file, one call
   ├── Carrier detection (own FFT — pipeline stands on its own)
   ├── Bandpass prefilter (auto-tuned, coefficients cached)
   ├── Zero-crossing detection (sinc interp + Brent's method)
@@ -59,10 +63,15 @@ Python Pipeline (PyScript/Pyodide) — full file, one call
   ├── Edge trimming + outlier rejection
   ├── Uniform grid interpolation
   ├── AES6 weighting + band separation
-  └── Returns structured data (not images)
+  ├── Status messages → postMessage → main thread (progress updates)
+  └── Returns structured JSON (not images)
+        │
+  ══════╪═══════════════════════════════════════════
+        │  postMessage (result JSON)
+  ══════╪═══════════════════════════════════════════
         │
         ▼
-JS Rendering
+JS Rendering (main thread)
   ├── Deviation waveform (interactive, zoomable)
   ├── Spectrum with selectable harmonics
   ├── Stats panel (AES6 metrics)
@@ -79,15 +88,26 @@ When the user selects a measurement region via loop handles:
 3. Full pipeline re-runs on the segment (carrier detection and filter design are trivially fast — no caching needed)
 4. Zero-crossing detection and downstream processing **must re-run** — this is the expensive part
 5. All metrics, spectrum, polar, and histogram update to reflect the selected region
-6. UI shows processing indicator during re-run
-
-The pipeline cost scales linearly with region length. Not instant, but manageable for 10–60s regions.
+6. UI shows processing indicator during re-run (non-blocking — Worker handles processing while main thread stays responsive)
 
 ---
 
 ## Python Module Architecture
 
-Refactor `fg_analyze.py` into a clean module callable from PyScript. Single entry point for full analysis, returns all data needed for JS rendering.
+Refactor `fg_analyze.py` into a clean module callable from Pyodide. Single entry point for full analysis, returns all data needed for JS rendering.
+
+### Web Worker Requirement
+
+**Pyodide MUST run in a dedicated Web Worker.** The Python pipeline takes 10–60+ seconds depending on file length and carrier frequency. Running on the main thread freezes the UI completely — no progress updates, no cancel, no responsiveness. This is not acceptable.
+
+Architecture:
+- `src/workers/pyodideWorker.js` — Web Worker that loads Pyodide, fetches and executes `wf_analyzer.py`, exposes `analyze`/`analyzeRegion` via `postMessage`
+- `src/services/pyBridge.js` — Main-thread interface. Sends PCM data to worker via `postMessage` with `Transferable` ArrayBuffer (zero-copy). Receives status updates and results via `postMessage` callbacks.
+- **No `<script type="py">` in index.html** — Pyodide is loaded entirely within the Worker, not via PyScript tags on the main thread
+- Status callback: Worker posts `{type: 'status', message: '...'}` messages during processing → pyBridge dispatches to UI
+- Result: Worker posts `{type: 'result', data: {...}}` with the full analysis JSON
+- Error: Worker posts `{type: 'error', message: '...', traceback: '...'}`
+- PCM transfer: Main thread sends `{type: 'analyze', pcm: Float64Array.buffer, sampleRate: int}` with the buffer as a transferable (zero-copy to worker)
 
 ### Return Data Structure
 
@@ -403,7 +423,7 @@ Mirrors prototype's two-plot approach:
 | Message Type | Payload | Description |
 |---|---|---|
 | `resize` | `{height: number}` | Window height for iframe sizing |
-| `ready` | `{}` | App fully initialized (React + PyScript + all dependencies). Ready to accept files. |
+| `ready` | `{}` | App fully initialized (React + Pyodide Worker + all dependencies). Ready to accept files. |
 | `stateChange` | `{state: 'initializing' \| 'ready' \| 'loading' \| 'processing' \| 'complete' \| 'error'}` | App/processing state |
 | `results` | `{metrics: {...}, carrier: number}` | AES6 metrics for host page consumption |
 | `error` | `{message: string, trace?: string}` | Error details |
@@ -428,7 +448,7 @@ Mirrors prototype's two-plot approach:
 | Sample rate too low | "Sample rate too low (minimum 44.1 kHz)." |
 | Carrier too high for sample rate | "Detected carrier ({freq} Hz) requires a higher sample rate than the file provides after downsampling. Cannot process." |
 | File exceeds duration cap | "File truncated to 120s for analysis." (info notice, not error) |
-| PyScript failed to load | "Analysis engine failed to load. Try refreshing the page." |
+| Pyodide Worker failed to load | "Analysis engine failed to load. Try refreshing the page." |
 | Processing failure | "Analysis failed: {top-line from exception}" + expandable trace |
 
 ---
@@ -498,4 +518,4 @@ const CONFIG = {
 | Project | What to borrow |
 |---|---|
 | Browser-ABX (https://acidtest.io) | Layout/theme architecture, waveform UX (zoom/pan/gestures/loop handles), FLAC decoder integration, embed patterns |
-| SJPlot/online (https://sjplot.com/online) | PyScript/Pyodide integration pattern, JS↔Python data bridge via window globals, mini-coi.js, file loading (drag-drop + URL), error display with stack trace |
+| SJPlot/online (https://sjplot.com/online) | Pyodide integration pattern (note: SJPlot uses main-thread PyScript — we use a Web Worker instead), mini-coi.js, file loading (drag-drop + URL), error display with stack trace |
