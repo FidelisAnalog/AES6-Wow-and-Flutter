@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Typography, CircularProgress, Box } from '@mui/material';
 import Layout from './components/Layout/Layout.jsx';
 import FileInput from './components/FileInput/FileInput.jsx';
 import FileInfo from './components/FileInput/FileInfo.jsx';
 import ErrorDisplay from './components/ErrorDisplay.jsx';
 import StatsPanel from './components/StatsPanel/StatsPanel.jsx';
+import Waveform from './components/Waveform/Waveform.jsx';
 import { loadAudioFile } from './services/audioLoader.js';
 import {
   initPyBridge, onStatus, onResult, onError,
@@ -19,6 +20,7 @@ function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [errorTrace, setErrorTrace] = useState('');
+  const audioRef = useRef(null); // keep PCM data for region re-analysis
 
   useEffect(() => {
     initPyBridge();
@@ -58,6 +60,7 @@ function App() {
       setStatus('Loading file...');
       const audio = await loadAudioFile(file);
       setAudioInfo(audio);
+      audioRef.current = audio;
       setProcessing(true);
       setStatus('Starting analysis...');
       analyzeFull(audio.pcm, audio.sampleRate);
@@ -85,6 +88,17 @@ function App() {
     };
   }, [pyReady, handleFile]);
 
+  const handleMeasureRegion = useCallback((startSec, endSec) => {
+    if (!audioRef.current) return;
+    const { pcm, sampleRate } = audioRef.current;
+    const startIdx = Math.round(startSec * sampleRate);
+    const endIdx = Math.round(endSec * sampleRate);
+    const slice = pcm.slice(startIdx, endIdx);
+    setProcessing(true);
+    setStatus('Re-measuring region...');
+    analyzeFull(slice, sampleRate);
+  }, []);
+
   return (
     <Layout>
       {/* Status */}
@@ -103,6 +117,17 @@ function App() {
 
       {/* Error */}
       <ErrorDisplay message={error} traceback={errorTrace} />
+
+      {/* Deviation waveform */}
+      <Waveform
+        tUniform={result?.t_uniform}
+        deviationPct={result?.deviation_pct}
+        wfPeak2Sigma={result?.wf_peak_2sigma}
+        totalDuration={audioInfo?.duration}
+        harmonicOverlays={[]}
+        processing={processing}
+        onMeasureRegion={handleMeasureRegion}
+      />
 
       {/* Results */}
       <StatsPanel

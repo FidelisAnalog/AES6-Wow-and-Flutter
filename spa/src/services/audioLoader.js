@@ -358,11 +358,14 @@ export async function loadAudioFile(file) {
     );
   }
 
-  // Quick carrier detection (for downsample decision only)
+  // Carrier detection — kept for UI info, but JS-side downsampling is disabled.
+  // Browser OfflineAudioContext resampling introduces phase distortion that
+  // corrupts zero-crossing timing and produces incorrect W&F numbers.
+  // Python handles native sample rates fast enough (~220ms for 105Hz/67s).
   const detectedCarrierHz = await detectCarrierFrequency(raw.pcm, raw.sampleRate);
 
-  // Adaptive downsample
-  const ds = await adaptiveDownsample(raw.pcm, raw.sampleRate, detectedCarrierHz);
+  // No JS-side downsample — pass native rate through to Python
+  const ds = { pcm: raw.pcm, sampleRate: raw.sampleRate, wasDownsampled: false, originalSampleRate: raw.sampleRate };
 
   // Non-signal trimming
   let pcm = trimNonSignal(ds.pcm, ds.sampleRate);

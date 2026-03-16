@@ -1,0 +1,437 @@
+/**
+ * Zoom/pan gesture state machine — adapted from Browser-ABX Waveform.
+ *
+ * Gesture state: 'idle' | 'wheel' | 'pinch' | 'overviewDrag' | 'handleDrag' | 'scroll' | 'waveformPan'
+ * Single enum prevents conflicting interactions.
+ *
+ * Input methods:
+ * - Ctrl+scroll / trackpad pinch → zoom centered on cursor
+ * - Shift+scroll → horizontal pan
+ * - Unmodified horizontal scroll → pan (when zoomed)
+ * - Mouse drag on waveform → pan (touch uses native scroll)
+ * - Touch pinch → zoom
+ * - Double-click → reset to full view
+ * - Keyboard: +/- zoom, 0 reset, Shift+Arrow pan
+ *
+ * Native scroll wrapper provides iOS momentum — no custom momentum math.
+ */
+
+import { useRef, useEffect, useCallback } from 'react';
+
+const MIN_VIEW_DURATION = 0.05; // 50ms minimum visible range
+const ZOOM_FACTOR = 0.008;      // zoom sensitivity for wheel events
+const PAN_FACTOR = 0.25;        // pan by 25% of view width per Shift+scroll step
+const EPSILON = 0.001;
+
+function isViewZoomed(vs, ve, dur) {
+  return vs > EPSILON || ve < dur - EPSILON;
+}
+
+/**
+ * @param {object} params
+ * @param {React.RefObject} params.containerRef - main waveform container
+ * @param {React.RefObject} params.scrollRef - scrollable wrapper
+ * @param {number} params.viewStart
+ * @param {number} params.viewEnd
+ * @param {number} params.totalDuration
+ * @param {number} params.containerWidth
+ * @param {(start: number, end: number) => void} params.onViewChange
+ * @param {React.MutableRefObject} params.gestureRef - shared gesture state
+ */
+export default function useWaveformGestures({
+  containerRef,
+  scrollRef,
+  viewStart,
+  viewEnd,
+  totalDuration,
+  containerWidth,
+  onViewChange,
+  gestureRef,
+  hasData = false,
+}) {
+  // Mutable refs for latest values (avoid stale closures)
+  const viewStartRef = useRef(viewStart);
+  viewStartRef.current = viewStart;
+  const viewEndRef = useRef(viewEnd);
+  viewEndRef.current = viewEnd;
+  const durationRef = useRef(totalDuration);
+  durationRef.current = totalDuration;
+  const widthRef = useRef(containerWidth);
+  widthRef.current = containerWidth;
+  const onViewChangeRef = useRef(onViewChange);
+  onViewChangeRef.current = onViewChange;
+
+  const scrollCausedViewChangeRef = useRef(false);
+  const programmaticScrollRef = useRef(false);
+  const panDragRef = useRef({ startX: null, moved: false, viewStart: 0, viewEnd: 0 });
+  const pinchRef = useRef(null);
+
+  // --- Zoom/pan helpers ---
+
+  const setUserView = useCallback((newStart, newEnd) => {
+    onViewChangeRef.current?.(newStart, newEnd);
+  }, []);
+
+  const applyZoom = useCallback((delta, centerX) => {
+    const dur = durationRef.current;
+    if (dur <= 0) return;
+
+    const vs = viewStartRef.current;
+    const ve = viewEndRef.current;
+    const viewDur = ve - vs;
+    const w = widthRef.current;
+
+    const centerTime = w > 0 ? vs + (centerX / w) * viewDur : (vs + ve) / 2;
+    const scale = Math.exp(delta * ZOOM_FACTOR);
+    const newViewDur = Math.max(MIN_VIEW_DURATION, Math.min(dur, viewDur * scale));
+
+    const ratio = w > 0 ? centerX / w : 0.5;
+    let newStart = centerTime - newViewDur * ratio;
+    let newEnd = centerTime + newViewDur * (1 - ratio);
+
+    if (newStart < 0) { newStart = 0; newEnd = Math.min(newViewDur, dur); }
+    if (newEnd > dur) { newEnd = dur; newStart = Math.max(0, dur - newViewDur); }
+
+    setUserView(newStart, newEnd);
+  }, [setUserView]);
+
+  const applyPan = useCallback((deltaFraction) => {
+    const dur = durationRef.current;
+    const vs = viewStartRef.current;
+    const ve = viewEndRef.current;
+    const viewDur = ve - vs;
+    const shift = viewDur * deltaFraction;
+
+    let newStart = vs + shift;
+    let newEnd = ve + shift;
+
+    if (newStart < 0) { newStart = 0; newEnd = viewDur; }
+    if (newEnd > dur) { newEnd = dur; newStart = Math.max(0, dur - viewDur); }
+
+    setUserView(newStart, newEnd);
+  }, [setUserView]);
+
+  const resetZoom = useCallback(() => {
+    setUserView(0, durationRef.current);
+  }, [setUserView]);
+
+  // --- Wheel event handler (zoom + pan) ---
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let gestureEndTimer = null;
+    let lastGestureScale = 1;
+
+    const startWheelGesture = () => {
+      gestureRef.current = 'wheel';
+      if (gestureEndTimer) clearTimeout(gestureEndTimer);
+      gestureEndTimer = setTimeout(() => {
+        if (gestureRef.current === 'wheel') gestureRef.current = 'idle';
+      }, 150);
+    };
+
+    const handleWheel = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl+scroll or trackpad pinch → zoom
+        e.preventDefault();
+        startWheelGesture();
+        const rect = el.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        applyZoom(e.deltaY, x);
+      } else if (e.shiftKey) {
+        // Shift+scroll → horizontal pan (proportional to scroll amount)
+        e.preventDefault();
+        startWheelGesture();
+        const delta = e.deltaX || e.deltaY;
+        // Trackpad fires small deltas (1-10px); scale to fraction of view width
+        applyPan(delta / 500);
+      } else {
+        // No modifier — horizontal scroll: always consume to prevent back-nav
+        // (handles are outside scrollRef, so overscrollBehaviorX doesn't protect them)
+        if (e.deltaX !== 0) {
+          e.preventDefault();
+          const vs = viewStartRef.current;
+          const ve = viewEndRef.current;
+          const dur = durationRef.current;
+          if (isViewZoomed(vs, ve, dur)) {
+            startWheelGesture();
+            applyPan(e.deltaX / 500);
+          }
+        }
+        // Vertical scroll passes through to page
+      }
+    };
+
+    // Safari gesture events for trackpad pinch
+    const handleGestureStart = (e) => {
+      e.preventDefault();
+      lastGestureScale = e.scale;
+    };
+
+    const handleGestureChange = (e) => {
+      e.preventDefault();
+      startWheelGesture();
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const delta = -(e.scale - lastGestureScale) * 100;
+      lastGestureScale = e.scale;
+      applyZoom(delta, x);
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    el.addEventListener('gesturestart', handleGestureStart, { passive: false });
+    el.addEventListener('gesturechange', handleGestureChange, { passive: false });
+
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+      el.removeEventListener('gesturestart', handleGestureStart);
+      el.removeEventListener('gesturechange', handleGestureChange);
+      if (gestureEndTimer) clearTimeout(gestureEndTimer);
+    };
+  }, [applyZoom, applyPan, containerRef, gestureRef, hasData]);
+
+  // --- Touch pinch-to-zoom ---
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    let initialDistance = 0;
+    let initialViewStart = 0;
+    let initialViewEnd = 0;
+    let pinchActive = false;
+    let gestureEndTimer = null;
+
+    const getDistance = (t1, t2) =>
+      Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+    const getMidX = (t1, t2, rect) =>
+      ((t1.clientX + t2.clientX) / 2) - rect.left;
+
+    const handleTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        pinchActive = true;
+        gestureRef.current = 'pinch';
+        initialDistance = getDistance(e.touches[0], e.touches[1]);
+        initialViewStart = viewStartRef.current;
+        initialViewEnd = viewEndRef.current;
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      if (!pinchActive || e.touches.length !== 2) return;
+      const newDist = getDistance(e.touches[0], e.touches[1]);
+      const scale = initialDistance / newDist;
+      const rect = el.getBoundingClientRect();
+      const midX = getMidX(e.touches[0], e.touches[1], rect);
+      const dur = durationRef.current;
+      const w = widthRef.current;
+
+      const initialViewDur = initialViewEnd - initialViewStart;
+      const newViewDur = Math.max(MIN_VIEW_DURATION, Math.min(dur, initialViewDur * scale));
+      const centerTime = w > 0
+        ? initialViewStart + (midX / w) * initialViewDur
+        : (initialViewStart + initialViewEnd) / 2;
+
+      const ratio = w > 0 ? midX / w : 0.5;
+      let newStart = centerTime - newViewDur * ratio;
+      let newEnd = centerTime + newViewDur * (1 - ratio);
+
+      if (newStart < 0) { newStart = 0; newEnd = Math.min(newViewDur, dur); }
+      if (newEnd > dur) { newEnd = dur; newStart = Math.max(0, dur - newViewDur); }
+
+      setUserView(newStart, newEnd);
+    };
+
+    const handleTouchEnd = () => {
+      if (!pinchActive) return;
+      pinchActive = false;
+      if (gestureEndTimer) clearTimeout(gestureEndTimer);
+      gestureEndTimer = setTimeout(() => {
+        if (gestureRef.current === 'pinch') gestureRef.current = 'idle';
+      }, 150);
+    };
+
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchmove', handleTouchMove, { passive: true });
+    el.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('touchend', handleTouchEnd);
+      if (gestureEndTimer) clearTimeout(gestureEndTimer);
+    };
+  }, [setUserView, containerRef, gestureRef, hasData]);
+
+  // --- Native scroll → view sync (touch pan with iOS momentum) ---
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let gestureEndTimer = null;
+
+    const handleScroll = () => {
+      if (programmaticScrollRef.current) {
+        programmaticScrollRef.current = false;
+        return;
+      }
+      if (gestureRef.current === 'overviewDrag') return;
+      const dur = durationRef.current;
+      const vs = viewStartRef.current;
+      const ve = viewEndRef.current;
+      const viewDur = ve - vs;
+      const w = widthRef.current;
+      if (dur <= 0 || w <= 0 || viewDur >= dur - EPSILON) return;
+
+      const spacerW = w * (dur / viewDur);
+      const maxScroll = spacerW - w;
+      if (maxScroll <= 0) return;
+
+      const scrollLeft = el.scrollLeft;
+      const newStart = (scrollLeft / maxScroll) * (dur - viewDur);
+      const newEnd = newStart + viewDur;
+
+      scrollCausedViewChangeRef.current = true;
+      gestureRef.current = 'scroll';
+      if (gestureEndTimer) clearTimeout(gestureEndTimer);
+      gestureEndTimer = setTimeout(() => {
+        if (gestureRef.current === 'scroll') gestureRef.current = 'idle';
+      }, 150);
+
+      setUserView(
+        Math.max(0, Math.min(newStart, dur - viewDur)),
+        Math.max(viewDur, Math.min(newEnd, dur))
+      );
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', handleScroll);
+      if (gestureEndTimer) clearTimeout(gestureEndTimer);
+    };
+  }, [setUserView, scrollRef, gestureRef, containerWidth, hasData]);
+
+  // --- Waveform pointer handlers: drag-to-pan (mouse only, touch uses native scroll) ---
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handlePointerDown = (e) => {
+      if (gestureRef.current === 'handleDrag') return;
+      if (e.button !== 0) return;
+      // Don't capture for touch — let browser handle native scroll
+      if (e.pointerType !== 'touch') {
+        e.target.setPointerCapture(e.pointerId);
+      }
+      panDragRef.current = {
+        startX: e.clientX,
+        moved: false,
+        viewStart: viewStartRef.current,
+        viewEnd: viewEndRef.current,
+      };
+    };
+
+    const handlePointerMove = (e) => {
+      const pd = panDragRef.current;
+      if (pd.startX == null) return;
+      const dx = e.clientX - pd.startX;
+      if (!pd.moved && Math.abs(dx) > 3) {
+        pd.moved = true;
+      }
+      // Mouse drag-to-pan (touch uses native scroll instead)
+      if (pd.moved && e.pointerType !== 'touch') {
+        const w = widthRef.current;
+        const dur = durationRef.current;
+        if (w > 0 && dur > 0) {
+          const origViewDur = pd.viewEnd - pd.viewStart;
+          const dTime = -(dx / w) * origViewDur;
+          let newStart = pd.viewStart + dTime;
+          let newEnd = pd.viewEnd + dTime;
+          if (newStart < 0) { newStart = 0; newEnd = origViewDur; }
+          if (newEnd > dur) { newEnd = dur; newStart = Math.max(0, dur - origViewDur); }
+          gestureRef.current = 'waveformPan';
+          el.style.cursor = 'grabbing';
+          setUserView(newStart, newEnd);
+        }
+      }
+    };
+
+    const handlePointerUp = () => {
+      const pd = panDragRef.current;
+      if (pd.startX == null) return;
+      if (pd.moved) {
+        el.style.cursor = '';
+        if (gestureRef.current === 'waveformPan') gestureRef.current = 'idle';
+      }
+      pd.startX = null;
+    };
+
+    // Double-click: reset to full view
+    const handleDblClick = () => {
+      resetZoom();
+    };
+
+    el.addEventListener('pointerdown', handlePointerDown);
+    el.addEventListener('pointermove', handlePointerMove);
+    el.addEventListener('pointerup', handlePointerUp);
+    el.addEventListener('pointercancel', handlePointerUp);
+    el.addEventListener('dblclick', handleDblClick);
+
+    return () => {
+      el.removeEventListener('pointerdown', handlePointerDown);
+      el.removeEventListener('pointermove', handlePointerMove);
+      el.removeEventListener('pointerup', handlePointerUp);
+      el.removeEventListener('pointercancel', handlePointerUp);
+      el.removeEventListener('dblclick', handleDblClick);
+    };
+  }, [setUserView, resetZoom, containerRef, gestureRef, hasData]);
+
+  // --- Keyboard shortcuts ---
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        const w = widthRef.current;
+        applyZoom(-30, w / 2);
+        return;
+      }
+      if (e.key === '-') {
+        e.preventDefault();
+        const w = widthRef.current;
+        applyZoom(30, w / 2);
+        return;
+      }
+      if (e.key === '0' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        resetZoom();
+        return;
+      }
+      if (e.shiftKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        applyPan(-PAN_FACTOR);
+        return;
+      }
+      if (e.shiftKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        applyPan(PAN_FACTOR);
+        return;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [applyZoom, applyPan, resetZoom]);
+
+  // Return scroll sync refs for the container to use
+  return {
+    scrollCausedViewChangeRef,
+    programmaticScrollRef,
+  };
+}
