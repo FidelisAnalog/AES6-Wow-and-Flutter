@@ -143,7 +143,7 @@ export default function useWaveformGestures({
     };
 
     const resetAxis = () => {
-      console.log(`[wf] === RESET (was axis:${scrollAxis ?? 'null'} accX:${accumX.toFixed(1)} accY:${accumY.toFixed(1)}) ===`);
+      // console.log(`[wf] === RESET (was axis:${scrollAxis ?? 'null'} accX:${accumX.toFixed(1)} accY:${accumY.toFixed(1)}) ===`);
       scrollAxis = null;
       accumX = 0;
       accumY = 0;
@@ -212,14 +212,14 @@ export default function useWaveformGestures({
           // else: keep accumulating, native scroll passes through
         }
 
-        // Diagnostic logging
-        const locked = scrollAxis !== prevAxis && scrollAxis !== null;
-        console.log(
-          `[wf] dX:${e.deltaX.toFixed(1)} dY:${e.deltaY.toFixed(1)} | ` +
-          `accX:${accumX.toFixed(1)} accY:${accumY.toFixed(1)} | ` +
-          `axis:${scrollAxis ?? 'null'}${locked ? ' ←LOCK' : ''} | ` +
-          `pd:${e.defaultPrevented} gesture:${gestureRef.current}`
-        );
+        // Diagnostic logging (commented out — re-enable for gesture debugging)
+        // const locked = scrollAxis !== prevAxis && scrollAxis !== null;
+        // console.log(
+        //   `[wf] dX:${e.deltaX.toFixed(1)} dY:${e.deltaY.toFixed(1)} | ` +
+        //   `accX:${accumX.toFixed(1)} accY:${accumY.toFixed(1)} | ` +
+        //   `axis:${scrollAxis ?? 'null'}${locked ? ' ←LOCK' : ''} | ` +
+        //   `pd:${e.defaultPrevented} gesture:${gestureRef.current}`
+        // );
       }
     };
 
