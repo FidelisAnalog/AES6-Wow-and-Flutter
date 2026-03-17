@@ -1,68 +1,77 @@
 /**
- * JS <-> Python bridge via Web Worker + Pyodide.
+ * JS <-> Python bridge — runs Pyodide on the main thread.
  *
- * Main thread interface: spawns a Web Worker that runs Pyodide,
- * communicates via postMessage. PCM data transferred as ArrayBuffer
- * (zero-copy). Status updates, results, and errors (with Python
- * stack traces) all come back through postMessage.
+ * Previous architecture used a Web Worker, but Safari (and to a lesser
+ * extent Chrome) blocks the main thread for 10-12s during worker WASM
+ * execution due to browser-engine-level overhead. The actual Python
+ * computation is ~250ms, so running on main thread is faster in practice.
  */
 
-let _worker = null;
+// Use globalThis to survive Vite HMR module re-evaluation
+let _pyodide = globalThis.__pyodide ?? null;
 let _onStatus = null;
 let _onResult = null;
 let _onError = null;
-let _ready = false;
+let _ready = globalThis.__pyodideReady ?? false;
+let _initPromise = globalThis.__pyodideInitPromise ?? null;
+
+const PYODIDE_VERSION = '0.27.5';
 
 /**
  * Initialize the Python bridge. Call once on app mount.
- * Spawns the Pyodide Web Worker and wires up message handlers.
+ * Loads Pyodide, numpy, scipy, and wf_analyzer.py on the main thread.
  */
 export function initPyBridge() {
-  // Spawn worker — Vite handles the URL via ?worker&url import
-  // Using standard Worker constructor with module path
-  _worker = new Worker(
-    new URL('../workers/pyodideWorker.js', import.meta.url),
-    { type: 'classic' }
-  );
+  if (_initPromise) return; // Already initialized (React StrictMode double-mount)
+  _initPromise = _init();
+}
 
-  _worker.onmessage = (e) => {
-    const msg = e.data;
+async function _init() {
+  try {
+    _onStatus?.('Loading Python runtime...');
 
-    switch (msg.type) {
-      case 'ready':
-        _ready = true;
-        _onStatus?.('Python runtime ready');
-        break;
+    // Load Pyodide via script tag (dynamic import doesn't work through Vite)
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Failed to load Pyodide script'));
+      document.head.appendChild(script);
+    });
+    _pyodide = await globalThis.loadPyodide();
 
-      case 'status':
-        _onStatus?.(msg.message);
-        break;
+    _onStatus?.('Installing numpy + scipy...');
+    await _pyodide.loadPackage(['numpy', 'scipy']);
 
-      case 'result': {
-        // Worker sends JSON string — parse it
-        let data;
-        try {
-          data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
-        } catch (parseErr) {
-          _onError?.('Failed to parse analysis results', String(parseErr));
-          return;
-        }
-        _onResult?.(data);
-        break;
-      }
-
-      case 'error':
-        _onError?.(msg.message, msg.traceback || '');
-        break;
+    _onStatus?.('Loading analyzer module...');
+    const resp = await fetch('/python/wf_analyzer.py');
+    if (!resp.ok) {
+      throw new Error(`Failed to fetch wf_analyzer.py: ${resp.status} ${resp.statusText}`);
     }
-  };
+    const moduleCode = await resp.text();
+    _pyodide.runPython(moduleCode);
 
-  _worker.onerror = (err) => {
+    // Wire up status callback
+    const statusCallback = (msg) => {
+      _onStatus?.(String(msg));
+    };
+    _pyodide.globals.set('_js_status_callback', statusCallback);
+    _pyodide.runPython(`
+import json as _json
+set_status_callback(_js_status_callback)
+`);
+
+    _ready = true;
+    globalThis.__pyodide = _pyodide;
+    globalThis.__pyodideReady = true;
+    globalThis.__pyodideInitPromise = _initPromise;
+    _onStatus?.('Python runtime ready');
+  } catch (err) {
     _onError?.(
-      'Worker error: ' + (err.message || 'unknown'),
-      err.filename ? `${err.filename}:${err.lineno}` : '',
+      'Failed to initialize Python runtime',
+      String(err?.stack || err),
     );
-  };
+  }
 }
 
 /** @param {(message: string) => void} cb */
@@ -87,16 +96,50 @@ export function analyzeFull(pcmData, sampleRate) {
     return;
   }
 
-  // Convert to Float64Array if needed (Python expects float64)
   const f64 = pcmData instanceof Float64Array
     ? pcmData
     : new Float64Array(pcmData);
 
-  // Transfer the buffer to the worker (zero-copy)
-  const buffer = f64.buffer;
-  _worker.postMessage(
-    { type: 'analyze', pcm: buffer, sampleRate },
-    [buffer],
-  );
-}
+  try {
+    _pyodide.globals.set('_pcm_data', f64);
+    _pyodide.globals.set('_sample_rate', sampleRate);
 
+    _pyodide.runPython(`
+import numpy as np
+import traceback as _tb
+
+_worker_result = None
+_worker_error = None
+
+try:
+    _pcm = np.asarray(_pcm_data.to_py(), dtype=np.float64)
+    _sr = int(_sample_rate)
+    _result = analyze(_pcm, _sr)
+    _worker_result = _json.dumps(_result)
+except Exception as _e:
+    _worker_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})
+finally:
+    del _pcm_data, _sample_rate
+    # Clean up intermediate variables to free WASM memory
+    for _v in ('_pcm', '_sr', '_result', '_e'):
+        if _v in dir():
+            exec(f'del {_v}')
+    import gc; gc.collect()
+`);
+
+    const resultJson = _pyodide.globals.get('_worker_result');
+    const errorJson = _pyodide.globals.get('_worker_error');
+
+    _pyodide.runPython('del _worker_result, _worker_error');
+
+    if (errorJson) {
+      const err = JSON.parse(errorJson);
+      _onError?.(err.message, err.traceback);
+    } else if (resultJson) {
+      const data = JSON.parse(resultJson);
+      _onResult?.(data);
+    }
+  } catch (err) {
+    _onError?.(String(err), err?.stack || '');
+  }
+}

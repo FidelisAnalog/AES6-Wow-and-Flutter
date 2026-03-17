@@ -338,25 +338,15 @@ function trimNonSignal(pcm, sampleRate) {
  * @returns {Promise<object>} Processed audio info
  */
 export async function loadAudioFile(file) {
-  let _t = performance.now();
-  const _lap = (label) => {
-    const now = performance.now();
-    console.log(`[MAIN] ${label}: ${(now - _t).toFixed(0)} ms`);
-    _t = now;
-  };
-
   // Read file
   const buffer = await file.arrayBuffer();
-  _lap('file.arrayBuffer()');
 
   // Detect format and decode
   let raw;
   if (isFlac(buffer) || file.name.match(/\.flac$/i)) {
     raw = await decodeFlac(buffer, file.name);
-    _lap('decodeFlac');
   } else if (file.name.match(/\.wav$/i)) {
     raw = parseWav(buffer, file.name);
-    _lap('parseWav');
   } else {
     throw new Error('Unsupported file format. Please use WAV or FLAC.');
   }
@@ -373,14 +363,12 @@ export async function loadAudioFile(file) {
   // corrupts zero-crossing timing and produces incorrect W&F numbers.
   // Python handles native sample rates fast enough (~220ms for 105Hz/67s).
   const detectedCarrierHz = await detectCarrierFrequency(raw.pcm, raw.sampleRate);
-  _lap('detectCarrierFrequency');
 
   // No JS-side downsample — pass native rate through to Python
   const ds = { pcm: raw.pcm, sampleRate: raw.sampleRate, wasDownsampled: false, originalSampleRate: raw.sampleRate };
 
   // Non-signal trimming
   let pcm = trimNonSignal(ds.pcm, ds.sampleRate);
-  _lap('trimNonSignal');
 
   // Track original duration before cap
   const originalDuration = pcm.length / ds.sampleRate;

@@ -59,11 +59,16 @@ function App() {
     try {
       setStatus('Loading file...');
       const audio = await loadAudioFile(file);
-      setAudioInfo(audio);
-      audioRef.current = audio;
+
+      // Keep PCM only in ref (not React state) — large typed arrays in
+      // React state cause Safari to stall 10-12s during rendering.
+      const { pcm, ...audioMeta } = audio;
+      audioRef.current = { pcm, sampleRate: audio.sampleRate };
+      setAudioInfo(audioMeta);
+
       setProcessing(true);
       setStatus('Starting analysis...');
-      analyzeFull(audio.pcm, audio.sampleRate);
+      analyzeFull(pcm, audio.sampleRate);
     } catch (e) {
       setError(String(e));
     }
