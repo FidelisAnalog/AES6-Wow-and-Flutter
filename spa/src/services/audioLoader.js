@@ -333,24 +333,9 @@ function trimNonSignal(pcm, sampleRate) {
 // ---------------------------------------------------------------------------
 
 /**
- * Load and pre-process an audio file.
- * @param {File} file
- * @returns {Promise<object>} Processed audio info
+ * Common processing pipeline: carrier detect, trim, cap.
  */
-export async function loadAudioFile(file) {
-  // Read file
-  const buffer = await file.arrayBuffer();
-
-  // Detect format and decode
-  let raw;
-  if (isFlac(buffer) || file.name.match(/\.flac$/i)) {
-    raw = await decodeFlac(buffer, file.name);
-  } else if (file.name.match(/\.wav$/i)) {
-    raw = parseWav(buffer, file.name);
-  } else {
-    throw new Error('Unsupported file format. Please use WAV or FLAC.');
-  }
-
+async function processRawAudio(raw) {
   // Sample rate check
   if (raw.sampleRate < MIN_SAMPLE_RATE) {
     throw new Error(
@@ -358,22 +343,14 @@ export async function loadAudioFile(file) {
     );
   }
 
-  // Carrier detection — kept for UI info, but JS-side downsampling is disabled.
-  // Browser OfflineAudioContext resampling introduces phase distortion that
-  // corrupts zero-crossing timing and produces incorrect W&F numbers.
-  // Python handles native sample rates fast enough (~220ms for 105Hz/67s).
   const detectedCarrierHz = await detectCarrierFrequency(raw.pcm, raw.sampleRate);
 
-  // No JS-side downsample — pass native rate through to Python
   const ds = { pcm: raw.pcm, sampleRate: raw.sampleRate, wasDownsampled: false, originalSampleRate: raw.sampleRate };
 
-  // Non-signal trimming
   let pcm = trimNonSignal(ds.pcm, ds.sampleRate);
 
-  // Track original duration before cap
   const originalDuration = pcm.length / ds.sampleRate;
 
-  // Duration cap
   let wasTruncated = false;
   const maxSamples = MAX_FILE_DURATION_SECONDS * ds.sampleRate;
   if (pcm.length > maxSamples) {
@@ -395,4 +372,80 @@ export async function loadAudioFile(file) {
     originalSampleRate: ds.originalSampleRate,
     detectedCarrierHz,
   };
+}
+
+/**
+ * Decode an ArrayBuffer as WAV or FLAC based on content/filename.
+ */
+function decodeBuffer(buffer, fileName) {
+  if (isFlac(buffer) || fileName.match(/\.flac$/i)) {
+    return decodeFlac(buffer, fileName);
+  } else if (fileName.match(/\.wav$/i)) {
+    return parseWav(buffer, fileName);
+  }
+  // Try content-based detection as last resort
+  if (isFlac(buffer)) return decodeFlac(buffer, fileName);
+  // Assume WAV
+  return parseWav(buffer, fileName);
+}
+
+/**
+ * Load and pre-process an audio file.
+ * @param {File} file
+ * @returns {Promise<object>} Processed audio info
+ */
+export async function loadAudioFile(file) {
+  const buffer = await file.arrayBuffer();
+  const raw = await decodeBuffer(buffer, file.name);
+  return processRawAudio(raw);
+}
+
+/**
+ * Fix Dropbox share URLs to force direct download.
+ * dropbox.com/scl/fi/...?dl=0 → dl=1
+ * dropbox.com/s/... → append ?dl=1 or &dl=1
+ */
+function fixDropboxUrl(url) {
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes('dropbox.com')) return url;
+    // Rewrite hostname to skip CORS-blocking redirect
+    u.hostname = 'dl.dropboxusercontent.com';
+    u.searchParams.set('dl', '1');
+    return u.toString();
+  } catch { return url; }
+}
+
+/**
+ * Extract a filename from a URL path.
+ */
+function filenameFromUrl(url) {
+  try {
+    const path = new URL(url).pathname;
+    const last = path.split('/').pop();
+    return last ? decodeURIComponent(last) : 'remote-file.wav';
+  } catch { return 'remote-file.wav'; }
+}
+
+/**
+ * Load and pre-process audio from a remote URL.
+ * @param {string} url
+ * @returns {Promise<object>} Processed audio info
+ */
+export async function loadAudioFromUrl(url) {
+  const fetchUrl = fixDropboxUrl(url);
+  const fileName = filenameFromUrl(url);
+
+  const resp = await fetch(fetchUrl);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch file: ${resp.status} ${resp.statusText}`);
+  }
+
+  const buffer = await resp.arrayBuffer();
+  if (buffer.byteLength === 0) {
+    throw new Error('Fetched file is empty');
+  }
+
+  const raw = await decodeBuffer(buffer, fileName);
+  return processRawAudio(raw);
 }

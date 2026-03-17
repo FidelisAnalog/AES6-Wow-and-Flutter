@@ -6,13 +6,15 @@ import FileInfo from './components/FileInput/FileInfo.jsx';
 import ErrorDisplay from './components/ErrorDisplay.jsx';
 import StatsPanel from './components/StatsPanel/StatsPanel.jsx';
 import Waveform from './components/Waveform/Waveform.jsx';
-import { loadAudioFile } from './services/audioLoader.js';
+import { loadAudioFile, loadAudioFromUrl } from './services/audioLoader.js';
+import useQueryParams from './hooks/useQueryParams.js';
 import {
   initPyBridge, onStatus, onResult, onError,
   analyzeFull,
 } from './services/pyBridge.js';
 
 function App() {
+  const { file: fileUrl } = useQueryParams();
   const [pyReady, setPyReady] = useState(false);
   const [status, setStatus] = useState('Loading Python runtime...');
   const [processing, setProcessing] = useState(false);
@@ -74,6 +76,31 @@ function App() {
     }
   }, []);
 
+  // Auto-load from ?file=<URL> query param once Pyodide is ready
+  const urlLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!pyReady || !fileUrl || urlLoadedRef.current) return;
+    urlLoadedRef.current = true;
+    (async () => {
+      setError(null);
+      setErrorTrace('');
+      setResult(null);
+      try {
+        setStatus('Fetching file from URL...');
+        const audio = await loadAudioFromUrl(fileUrl);
+        const { pcm, ...audioMeta } = audio;
+        audioRef.current = { pcm, sampleRate: audio.sampleRate };
+        setAudioInfo(audioMeta);
+        setProcessing(true);
+        setStatus('Starting analysis...');
+        analyzeFull(pcm, audio.sampleRate);
+      } catch (e) {
+        setError(String(e));
+        setStatus('URL load failed');
+      }
+    })();
+  }, [pyReady, fileUrl]);
+
   // Page-level drop handler — files dropped anywhere on the page trigger loading
   useEffect(() => {
     const handleDragOver = (e) => {
@@ -104,18 +131,21 @@ function App() {
     analyzeFull(slice, sampleRate);
   }, []);
 
+  const hasFile = !!audioInfo;
+
   return (
     <Layout>
-      {/* Status */}
+      {/* Status row — with inline file chooser after first load */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         {processing && <CircularProgress size={14} />}
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
           {status}
         </Typography>
+        {hasFile && <FileInput onFileSelected={handleFile} disabled={!pyReady} compact />}
       </Box>
 
-      {/* File input */}
-      <FileInput onFileSelected={handleFile} disabled={!pyReady} />
+      {/* Hero file input — only before first file is loaded */}
+      {!hasFile && <FileInput onFileSelected={handleFile} disabled={!pyReady} />}
 
       {/* File info */}
       <FileInfo audioInfo={audioInfo} />

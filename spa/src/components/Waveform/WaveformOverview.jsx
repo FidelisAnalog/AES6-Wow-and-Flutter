@@ -16,8 +16,9 @@ import { Box, useTheme } from '@mui/material';
 import { getYScale } from './useWaveformData.js';
 
 const OVERVIEW_HEIGHT = 30;
-const HANDLE_WIDTH = 20; // px hit area on viewport edges
-const CURSOR_WIDTH = 6;  // px cursor zone for mouse
+const TOUCH_HIT = 20;   // px hit area for touch/finger
+const MOUSE_HIT = 8;    // px hit area for mouse click
+const CURSOR_ZONE = 6;  // px cursor feedback zone around handle line
 
 const EPSILON = 0.001;
 function isViewZoomed(vs, ve, dur) {
@@ -196,7 +197,7 @@ const WaveformOverview = React.memo(function WaveformOverview({
       cursor = 'col-resize';
     } else if (draggingRef.current === 'pan') {
       cursor = 'grabbing';
-    } else if (Math.abs(x - vl) <= CURSOR_WIDTH || Math.abs(x - vr) <= CURSOR_WIDTH) {
+    } else if (Math.abs(x - vl) <= CURSOR_ZONE || Math.abs(x - vr) <= CURSOR_ZONE) {
       cursor = 'col-resize';
     } else if (x >= vl && x <= vr) {
       cursor = 'grab';
@@ -217,8 +218,8 @@ const WaveformOverview = React.memo(function WaveformOverview({
     const vs = viewStartRef.current;
     const ve = viewEndRef.current;
 
-    // Narrow hit zone for mouse, wide for touch
-    const hitWidth = e.pointerType === 'mouse' ? CURSOR_WIDTH : HANDLE_WIDTH;
+    // Large hit zone for touch, moderate for mouse — independent of cursor feedback
+    const hitWidth = e.pointerType === 'mouse' ? MOUSE_HIT : TOUCH_HIT;
     if (Math.abs(x - vl) <= hitWidth) {
       draggingRef.current = 'left';
     } else if (Math.abs(x - vr) <= hitWidth) {
@@ -292,9 +293,11 @@ const WaveformOverview = React.memo(function WaveformOverview({
   return (
     <Box
       ref={containerRef}
+      onPointerEnter={updateCursor}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerLeave={() => { if (containerRef.current) containerRef.current.style.cursor = ''; }}
       sx={{
         width: '100%',
         position: 'relative',
@@ -307,6 +310,7 @@ const WaveformOverview = React.memo(function WaveformOverview({
         overflow: 'hidden',
         minHeight: OVERVIEW_HEIGHT,
         touchAction: 'none',
+        cursor: 'pointer',
       }}
     >
       {containerWidth > 0 && (
@@ -316,6 +320,7 @@ const WaveformOverview = React.memo(function WaveformOverview({
             display: 'block',
             width: containerWidth,
             height: OVERVIEW_HEIGHT,
+            pointerEvents: 'none',
           }}
         />
       )}

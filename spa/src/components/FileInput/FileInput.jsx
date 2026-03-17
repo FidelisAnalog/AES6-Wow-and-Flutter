@@ -1,14 +1,16 @@
 import { useState, useCallback, useRef } from 'react';
-import { Paper, Typography } from '@mui/material';
-import { CloudUpload } from '@mui/icons-material';
+import { Paper, Typography, Button, Box } from '@mui/material';
+import { CloudUpload, FolderOpen } from '@mui/icons-material';
 
 /**
  * Drag-drop zone + click-to-browse for WAV/FLAC files.
- * The visual drop target — page-level drop is wired in App.jsx.
+ * Two modes:
+ *   compact=false (default): centered hero card for initial file selection
+ *   compact=true: inline "Choose file" button for re-selection after load
  *
- * @param {{ onFileSelected: (file: File) => void, disabled: boolean }} props
+ * Page-level drop is also wired in App.jsx.
  */
-export default function FileInput({ onFileSelected, disabled }) {
+export default function FileInput({ onFileSelected, disabled, compact = false }) {
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef(null);
 
@@ -39,42 +41,80 @@ export default function FileInput({ onFileSelected, disabled }) {
   const handleFileChange = useCallback((e) => {
     const file = e.target.files?.[0];
     if (file) onFileSelected(file);
-    // Reset so the same file can be re-selected
     e.target.value = '';
   }, [onFileSelected]);
 
+  const hiddenInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept=".wav,.flac"
+      style={{ display: 'none' }}
+      onChange={handleFileChange}
+    />
+  );
+
+  if (compact) {
+    return (
+      <>
+        <Button
+          size="small"
+          startIcon={<FolderOpen />}
+          onClick={handleClick}
+          disabled={disabled}
+          sx={{ textTransform: 'none' }}
+        >
+          Choose file
+        </Button>
+        {hiddenInput}
+      </>
+    );
+  }
+
   return (
     <>
-      <Paper
-        variant="outlined"
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onClick={handleClick}
-        sx={{
-          p: 4,
-          textAlign: 'center',
-          cursor: disabled ? 'default' : 'pointer',
-          border: '2px dashed',
-          borderColor: dragOver ? 'primary.main' : 'divider',
-          bgcolor: dragOver ? 'action.hover' : 'background.paper',
-          opacity: disabled ? 0.5 : 1,
-          pointerEvents: disabled ? 'none' : 'auto',
-          transition: 'border-color 0.2s, background-color 0.2s',
-        }}
-      >
-        <CloudUpload sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
-        <Typography color="text.secondary">
-          Drop a WAV or FLAC file here, or click to browse
-        </Typography>
-      </Paper>
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".wav,.flac"
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1,
+        pointerEvents: 'none',
+      }}>
+        <Paper
+          elevation={2}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onClick={handleClick}
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            width: '50vw',
+            height: '50vh',
+            textAlign: 'center',
+            cursor: disabled ? 'default' : 'pointer',
+            border: '2px dashed',
+            borderColor: dragOver ? 'primary.main' : 'divider',
+            bgcolor: dragOver ? 'action.hover' : 'background.paper',
+            opacity: disabled ? 0.5 : 1,
+            pointerEvents: 'auto',
+            transition: 'border-color 0.2s, background-color 0.2s',
+          }}
+        >
+          <CloudUpload sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
+          <Typography color="text.secondary">
+            Drop a WAV or FLAC file here, or click to browse
+          </Typography>
+        </Paper>
+      </Box>
+      {hiddenInput}
     </>
   );
 }
