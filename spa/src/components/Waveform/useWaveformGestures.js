@@ -122,6 +122,17 @@ export default function useWaveformGestures({
     if (!el) return;
     let gestureEndTimer = null;
     let lastGestureScale = 1;
+    // Direction lock — don't preventDefault during detection phase.
+    // Native scroll handles vertical naturally. scrollRef's handleScroll
+    // is suppressed via gestureRef='detecting' so deltaX noise doesn't pan.
+    // Only once horizontal is confirmed do we preventDefault and take control.
+    let scrollAxis = null; // 'h' | 'v' | null
+    let axisTimer = null;
+    let accumX = 0;
+    let accumY = 0;
+    const AXIS_TIMEOUT = 300;
+    const H_LOCK = 6;           // px accumX must lead accumY to lock horizontal
+
 
     const startWheelGesture = () => {
       gestureRef.current = 'wheel';
@@ -129,6 +140,14 @@ export default function useWaveformGestures({
       gestureEndTimer = setTimeout(() => {
         if (gestureRef.current === 'wheel') gestureRef.current = 'idle';
       }, 150);
+    };
+
+    const resetAxis = () => {
+      console.log(`[wf] === RESET (was axis:${scrollAxis ?? 'null'} accX:${accumX.toFixed(1)} accY:${accumY.toFixed(1)}) ===`);
+      scrollAxis = null;
+      accumX = 0;
+      accumY = 0;
+      if (gestureRef.current === 'detecting') gestureRef.current = 'idle';
     };
 
     const handleWheel = (e) => {
@@ -144,12 +163,20 @@ export default function useWaveformGestures({
         e.preventDefault();
         startWheelGesture();
         const delta = e.deltaX || e.deltaY;
-        // Trackpad fires small deltas (1-10px); scale to fraction of view width
         applyPan(delta / 500);
       } else {
-        // No modifier — horizontal scroll: always consume to prevent back-nav
-        // (handles are outside scrollRef, so overscrollBehaviorX doesn't protect them)
-        if (e.deltaX !== 0) {
+        // Reset axis lock timer on every event
+        if (axisTimer) clearTimeout(axisTimer);
+        axisTimer = setTimeout(resetAxis, AXIS_TIMEOUT);
+
+        // Accumulate continuously
+        accumX += Math.abs(e.deltaX);
+        accumY += Math.abs(e.deltaY);
+
+        const prevAxis = scrollAxis;
+
+        if (scrollAxis === 'h') {
+          // Locked horizontal — prevent default and pan
           e.preventDefault();
           const vs = viewStartRef.current;
           const ve = viewEndRef.current;
@@ -158,19 +185,62 @@ export default function useWaveformGestures({
             startWheelGesture();
             applyPan(e.deltaX / 500);
           }
+        } else if (scrollAxis === 'v') {
+          // Locked vertical — do nothing, native scroll handles it
+        } else {
+          // Undecided — let native scroll handle it (don't preventDefault).
+          // Suppress scrollRef's handleScroll so deltaX noise doesn't pan.
+          gestureRef.current = 'detecting';
+
+          // Try to lock
+          if (accumX > accumY + H_LOCK) {
+            scrollAxis = 'h';
+            // Immediately handle this event as horizontal
+            e.preventDefault();
+            const vs = viewStartRef.current;
+            const ve = viewEndRef.current;
+            const dur = durationRef.current;
+            if (isViewZoomed(vs, ve, dur)) {
+              startWheelGesture();
+              applyPan(e.deltaX / 500);
+            }
+          } else if (accumY > accumX) {
+            // Y leads at all → lock vertical, native scroll is already handling it
+            scrollAxis = 'v';
+            gestureRef.current = 'idle';
+          }
+          // else: keep accumulating, native scroll passes through
         }
-        // Vertical scroll passes through to page
+
+        // Diagnostic logging
+        const locked = scrollAxis !== prevAxis && scrollAxis !== null;
+        console.log(
+          `[wf] dX:${e.deltaX.toFixed(1)} dY:${e.deltaY.toFixed(1)} | ` +
+          `accX:${accumX.toFixed(1)} accY:${accumY.toFixed(1)} | ` +
+          `axis:${scrollAxis ?? 'null'}${locked ? ' ←LOCK' : ''} | ` +
+          `pd:${e.defaultPrevented} gesture:${gestureRef.current}`
+        );
       }
     };
 
-    // Safari gesture events for trackpad pinch
+    // Safari gesture events for trackpad pinch.
+    // gesturestart fires for ALL two-finger trackpad interactions (scroll too).
+    // Only preventDefault when scale changes (real pinch), otherwise native
+    // vertical scroll is blocked.
+    let gestureIsPinch = false;
+
     const handleGestureStart = (e) => {
-      e.preventDefault();
       lastGestureScale = e.scale;
+      gestureIsPinch = false;
     };
 
     const handleGestureChange = (e) => {
+      const scaleDelta = Math.abs(e.scale - lastGestureScale);
+      if (scaleDelta > 0.01) gestureIsPinch = true;
+      if (!gestureIsPinch) return;
+
       e.preventDefault();
+      // pinch overrides any scroll
       startWheelGesture();
       const rect = el.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -179,15 +249,25 @@ export default function useWaveformGestures({
       applyZoom(delta, x);
     };
 
+    const handleGestureEnd = () => {
+      lastGestureScale = 1;
+      gestureIsPinch = false;
+      if (gestureEndTimer) clearTimeout(gestureEndTimer);
+      if (gestureRef.current === 'wheel') gestureRef.current = 'idle';
+    };
+
     el.addEventListener('wheel', handleWheel, { passive: false });
     el.addEventListener('gesturestart', handleGestureStart, { passive: false });
     el.addEventListener('gesturechange', handleGestureChange, { passive: false });
+    el.addEventListener('gestureend', handleGestureEnd, { passive: false });
 
     return () => {
       el.removeEventListener('wheel', handleWheel);
       el.removeEventListener('gesturestart', handleGestureStart);
       el.removeEventListener('gesturechange', handleGestureChange);
+      el.removeEventListener('gestureend', handleGestureEnd);
       if (gestureEndTimer) clearTimeout(gestureEndTimer);
+      if (axisTimer) clearTimeout(axisTimer);
     };
   }, [applyZoom, applyPan, containerRef, gestureRef, hasData]);
 
@@ -277,7 +357,7 @@ export default function useWaveformGestures({
         programmaticScrollRef.current = false;
         return;
       }
-      if (gestureRef.current === 'overviewDrag') return;
+      if (gestureRef.current === 'overviewDrag' || gestureRef.current === 'detecting') return;
       const dur = durationRef.current;
       const vs = viewStartRef.current;
       const ve = viewEndRef.current;

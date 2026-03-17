@@ -1,3 +1,4 @@
+/* gesture-v1 */
 /**
  * Waveform container — adapted from Browser-ABX Waveform.jsx.
  *

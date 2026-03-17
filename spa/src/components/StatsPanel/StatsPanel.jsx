@@ -48,8 +48,8 @@ export default function StatsPanel({ result, processing, duration }) {
           DIN/IEC Unwtd
         </Typography>
         <MetricRow
-          label="Peak (2\u03C3)"
-          value={`\u00B1${fmt(aes6.peak_unweighted)}%`}
+          label="Peak (2σ)"
+          value={`±${fmt(aes6.peak_unweighted)}%`}
           tooltip={UNWTD_TIP}
         />
         <MetricRow label="RMS" value={`${fmt(aes6.rms_unweighted)}%`} />
@@ -61,8 +61,8 @@ export default function StatsPanel({ result, processing, duration }) {
           DIN/IEC Wtd
         </Typography>
         <MetricRow
-          label="Peak (2\u03C3)"
-          value={`\u00B1${fmt(aes6.peak_weighted)}%`}
+          label="Peak (2σ)"
+          value={`±${fmt(aes6.peak_weighted)}%`}
           tooltip={WTD_TIP}
         />
         <MetricRow label="RMS (JIS)" value={`${fmt(aes6.rms_weighted)}%`} />
