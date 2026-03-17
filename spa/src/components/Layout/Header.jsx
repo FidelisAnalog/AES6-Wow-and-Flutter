@@ -17,7 +17,7 @@ export default function Header() {
       }}
     >
       <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
-        AES6 W&amp;F Analyzer
+        AES6 W&amp;F Analyzer <span style={{fontSize:'0.5em',opacity:0.5}}>v12-diag</span>
       </Typography>
 
       <Tooltip title={`Switch to ${mode === 'dark' ? 'light' : 'dark'} mode (Ctrl+Shift+T)`}>

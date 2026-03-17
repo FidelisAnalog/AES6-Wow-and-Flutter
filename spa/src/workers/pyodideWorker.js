@@ -52,8 +52,15 @@ async function init() {
     // We create a JS function and pass it in — postMessage must be called
     // from JS (not Python) because Python dicts are Pyodide proxies that
     // can't be structurally cloned by postMessage.
+    let _lastWall = performance.now();
     const statusCallback = (msg) => {
+      const now = performance.now();
+      console.log(`[WALL] _status("${String(msg)}") — ${(now - _lastWall).toFixed(0)} ms since last`);
+      _lastWall = now;
       self.postMessage({ type: 'status', message: String(msg) });
+      const afterPost = performance.now();
+      console.log(`[WALL] postMessage took ${(afterPost - now).toFixed(0)} ms`);
+      _lastWall = afterPost;
     };
     pyodide.globals.set('_js_status_callback', statusCallback);
 
@@ -82,12 +89,18 @@ set_status_callback(_js_status_callback)
 function runAnalyze(pcmBuffer, sampleRate) {
   const pcmArray = new Float64Array(pcmBuffer);
 
+  console.log(`[WALL] runAnalyze start — ${pcmArray.length} samples`);
+  const t0 = performance.now();
+
   // Pass data into Python's global scope
   pyodide.globals.set('_pcm_data', pcmArray);
   pyodide.globals.set('_sample_rate', sampleRate);
 
+  console.log(`[WALL] globals.set done: ${(performance.now() - t0).toFixed(0)} ms`);
+
   // Python catches its own errors for full tracebacks.
   // Stores result/error as JSON strings in globals for JS to retrieve.
+  const t1 = performance.now();
   pyodide.runPython(`
 import numpy as np
 import traceback as _tb
@@ -105,6 +118,8 @@ except Exception as _e:
 finally:
     del _pcm_data, _sample_rate
 `);
+
+  console.log(`[WALL] runPython total: ${(performance.now() - t1).toFixed(0)} ms`);
 
   // Retrieve from Python globals and postMessage from JS
   const resultJson = pyodide.globals.get('_worker_result');
