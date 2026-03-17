@@ -14,7 +14,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
-import { Box, Button, CircularProgress, useTheme } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, useTheme } from '@mui/material';
 import WaveformMain from './WaveformMain.jsx';
 import WaveformOverview from './WaveformOverview.jsx';
 import LoopHandles from './LoopHandles.jsx';
@@ -190,7 +190,7 @@ export default function Waveform({
   if (!hasData) return null;
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <Paper sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
       {/* Overview bar — above main view */}
       <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <WaveformOverview
@@ -242,11 +242,12 @@ export default function Waveform({
               sx={{
                 width: '100%',
                 height: TOTAL_HEIGHT,
-                overflowX: 'scroll',
+                overflowX: isZoomed ? 'scroll' : 'hidden',
                 overflowY: 'hidden',
                 overscrollBehaviorX: 'none',
                 WebkitOverflowScrolling: 'touch',
-                touchAction: 'pan-x pan-y',
+                touchAction: isZoomed ? 'pan-x' : 'none',
+                overscrollBehaviorX: 'none',
                 scrollbarWidth: 'none',
                 '&::-webkit-scrollbar': { display: 'none' },
               }}
@@ -312,6 +313,6 @@ export default function Waveform({
           </Button>
         </Box>
       )}
-    </Box>
+    </Paper>
   );
 }

@@ -176,7 +176,7 @@ export default function useWaveformGestures({
         const prevAxis = scrollAxis;
 
         if (scrollAxis === 'h') {
-          // Locked horizontal — prevent default and pan
+          // Locked horizontal — always prevent default to block browser back/forward
           e.preventDefault();
           const vs = viewStartRef.current;
           const ve = viewEndRef.current;
@@ -188,9 +188,12 @@ export default function useWaveformGestures({
         } else if (scrollAxis === 'v') {
           // Locked vertical — do nothing, native scroll handles it
         } else {
-          // Undecided — let native scroll handle it (don't preventDefault).
-          // Suppress scrollRef's handleScroll so deltaX noise doesn't pan.
+          // Undecided — suppress scrollRef's handleScroll so deltaX noise doesn't pan.
+          // Always preventDefault horizontal-dominant events to block browser back/forward.
           gestureRef.current = 'detecting';
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+            e.preventDefault();
+          }
 
           // Try to lock
           if (accumX > accumY + H_LOCK) {

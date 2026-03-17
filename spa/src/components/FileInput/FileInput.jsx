@@ -72,49 +72,35 @@ export default function FileInput({ onFileSelected, disabled, compact = false })
   }
 
   return (
-    <>
-      <Box sx={{
+    <Paper
+      elevation={2}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onClick={handleClick}
+      sx={{
         display: 'flex',
+        flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        height: '100vh',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1,
-        pointerEvents: 'none',
-      }}>
-        <Paper
-          elevation={2}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={handleClick}
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            width: '50vw',
-            height: '50vh',
-            textAlign: 'center',
-            cursor: disabled ? 'default' : 'pointer',
-            border: '2px dashed',
-            borderColor: dragOver ? 'primary.main' : 'divider',
-            bgcolor: dragOver ? 'action.hover' : 'background.paper',
-            opacity: disabled ? 0.5 : 1,
-            pointerEvents: 'auto',
-            transition: 'border-color 0.2s, background-color 0.2s',
-          }}
-        >
-          <CloudUpload sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
-          <Typography color="text.secondary">
-            Drop a WAV or FLAC file here, or click to browse
-          </Typography>
-        </Paper>
-      </Box>
+        width: '50%',
+        height: '50vh',
+        mx: 'auto',
+        my: 'auto',
+        textAlign: 'center',
+        cursor: disabled ? 'default' : 'pointer',
+        border: '2px dashed',
+        borderColor: dragOver ? 'primary.main' : 'divider',
+        bgcolor: dragOver ? 'action.hover' : 'background.paper',
+        opacity: disabled ? 0.5 : 1,
+        transition: 'border-color 0.2s, background-color 0.2s',
+      }}
+    >
+      <CloudUpload sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
+      <Typography color="text.secondary">
+        Drop a WAV file on the page, or click to browse
+      </Typography>
       {hiddenInput}
-    </>
+    </Paper>
   );
 }
