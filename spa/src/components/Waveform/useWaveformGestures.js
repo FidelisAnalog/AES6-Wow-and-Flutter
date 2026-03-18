@@ -397,9 +397,13 @@ export default function useWaveformGestures({
   }, [setUserView, scrollRef, gestureRef, containerWidth, hasData]);
 
   // --- Waveform pointer handlers: drag-to-pan (mouse only, touch uses native scroll) ---
+  // Attached to scrollRef (inside scroll wrapper), NOT containerRef.
+  // Handle overlays sit outside the scroll wrapper on containerRef —
+  // keeping pan handlers on scrollRef prevents pointer event conflicts
+  // (same pattern as Browser-ABX where pan is on the SVG, not the container).
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = scrollRef.current;
     if (!el) return;
 
     const handlePointerDown = (e) => {
@@ -470,7 +474,7 @@ export default function useWaveformGestures({
       el.removeEventListener('pointercancel', handlePointerUp);
       el.removeEventListener('dblclick', handleDblClick);
     };
-  }, [setUserView, resetZoom, containerRef, gestureRef, hasData]);
+  }, [setUserView, resetZoom, scrollRef, gestureRef, hasData]);
 
   // --- Keyboard shortcuts ---
 
@@ -512,9 +516,32 @@ export default function useWaveformGestures({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [applyZoom, applyPan, resetZoom]);
 
-  // Return scroll sync refs for the container to use
+  // Toolbar-friendly zoom functions
+  const zoomIn = useCallback(() => {
+    const w = widthRef.current;
+    applyZoom(-30, w / 2);
+  }, [applyZoom]);
+
+  const zoomOut = useCallback(() => {
+    const w = widthRef.current;
+    applyZoom(30, w / 2);
+  }, [applyZoom]);
+
+  // Zoom state for toolbar button disabled states
+  const vs = viewStartRef.current;
+  const ve = viewEndRef.current;
+  const dur = durationRef.current;
+  const zoomed = isViewZoomed(vs, ve, dur);
+  const viewDur = ve - vs;
+  const maxZoom = viewDur <= MIN_VIEW_DURATION + EPSILON;
+
   return {
     scrollCausedViewChangeRef,
     programmaticScrollRef,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    isZoomed: zoomed,
+    isMaxZoom: maxZoom,
   };
 }

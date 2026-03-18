@@ -166,18 +166,18 @@ const WaveformOverview = React.memo(function WaveformOverview({
       ctx.stroke();
     }
 
-    // Loop region highlight (display-only)
+    // Loop region visuals — only when sub-region is active
     const isFullLoop = loopStart <= 0.01 && loopEnd >= totalDuration - 0.01;
     if (!isFullLoop && loopStart != null && loopEnd != null) {
-      const lx = (loopStart / totalDuration) * cssW;
-      const rx = (loopEnd / totalDuration) * cssW;
+      const lxLoop = (loopStart / totalDuration) * cssW;
+      const rxLoop = (loopEnd / totalDuration) * cssW;
       ctx.fillStyle = wf.loopRegion || wf.region;
-      ctx.fillRect(lx, 0, rx - lx, cssH);
+      ctx.fillRect(lxLoop, 0, rxLoop - lxLoop, cssH);
       ctx.strokeStyle = wf.loopHandle || wf.handle;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(lx, 0); ctx.lineTo(lx, cssH);
-      ctx.moveTo(rx, 0); ctx.lineTo(rx, cssH);
+      ctx.moveTo(lxLoop, 0); ctx.lineTo(lxLoop, cssH);
+      ctx.moveTo(rxLoop, 0); ctx.lineTo(rxLoop, cssH);
       ctx.stroke();
     }
 

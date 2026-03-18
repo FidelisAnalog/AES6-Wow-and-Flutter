@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Typography, CircularProgress, Box } from '@mui/material';
 import Layout from './components/Layout/Layout.jsx';
 import FileInput from './components/FileInput/FileInput.jsx';
@@ -13,16 +13,27 @@ import {
   analyzeFull,
 } from './services/pyBridge.js';
 
+const EPSILON = 0.001;
+
 function App() {
   const { file: fileUrl } = useQueryParams();
   const [pyReady, setPyReady] = useState(false);
   const [status, setStatus] = useState('Loading Python runtime...');
   const [processing, setProcessing] = useState(false);
   const [audioInfo, setAudioInfo] = useState(null);
-  const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [errorTrace, setErrorTrace] = useState('');
   const audioRef = useRef(null); // keep PCM data for region re-analysis
+
+  // Split result state: full-file vs region
+  const [fullResult, setFullResult] = useState(null);
+  const [regionResult, setRegionResult] = useState(null);
+  const [lastMeasuredRegion, setLastMeasuredRegion] = useState(null);
+  const isRegionMeasureRef = useRef(false);
+  const pendingRegionRef = useRef(null); // [start, end] for the in-flight region measure
+
+  // Active result: region overrides full-file when present
+  const activeResult = regionResult ?? fullResult;
 
   useEffect(() => {
     initPyBridge();
@@ -36,7 +47,16 @@ function App() {
     });
 
     onResult((res) => {
-      setResult(res);
+      if (isRegionMeasureRef.current) {
+        setRegionResult(res);
+        setLastMeasuredRegion(pendingRegionRef.current);
+        isRegionMeasureRef.current = false;
+        pendingRegionRef.current = null;
+      } else {
+        setFullResult(res);
+        setRegionResult(null);
+        setLastMeasuredRegion(null);
+      }
       setProcessing(false);
       setStatus('Analysis complete');
     });
@@ -45,13 +65,18 @@ function App() {
       setError(msg);
       setErrorTrace(traceback);
       setProcessing(false);
+      isRegionMeasureRef.current = false;
+      pendingRegionRef.current = null;
     });
   }, []);
 
   const handleFile = useCallback(async (file) => {
     setError(null);
     setErrorTrace('');
-    setResult(null);
+    setFullResult(null);
+    setRegionResult(null);
+    setLastMeasuredRegion(null);
+    isRegionMeasureRef.current = false;
 
     if (!file.name.match(/\.(wav|flac)$/i)) {
       setError('Unsupported file format. Please use WAV or FLAC.');
@@ -84,7 +109,9 @@ function App() {
     (async () => {
       setError(null);
       setErrorTrace('');
-      setResult(null);
+      setFullResult(null);
+      setRegionResult(null);
+      setLastMeasuredRegion(null);
       try {
         setStatus('Fetching file from URL...');
         const audio = await loadAudioFromUrl(fileUrl);
@@ -122,14 +149,28 @@ function App() {
 
   const handleMeasureRegion = useCallback((startSec, endSec) => {
     if (!audioRef.current) return;
+
+    // If handles are at full-file position, instant restore from cache
+    const dur = audioInfo?.duration || 0;
+    const isFullFile = startSec <= EPSILON && endSec >= dur - EPSILON;
+    if (isFullFile && fullResult) {
+      setRegionResult(null);
+      setLastMeasuredRegion(null);
+      setStatus('Analysis complete');
+      return;
+    }
+
     const { pcm, sampleRate } = audioRef.current;
     const startIdx = Math.round(startSec * sampleRate);
     const endIdx = Math.round(endSec * sampleRate);
     const slice = pcm.slice(startIdx, endIdx);
+
+    isRegionMeasureRef.current = true;
+    pendingRegionRef.current = [startSec, endSec];
     setProcessing(true);
     setStatus('Re-measuring region...');
     analyzeFull(slice, sampleRate);
-  }, []);
+  }, [audioInfo, fullResult]);
 
   const hasFile = !!audioInfo;
 
@@ -153,22 +194,23 @@ function App() {
       {/* Error */}
       <ErrorDisplay message={error} traceback={errorTrace} />
 
-      {/* Deviation waveform */}
+      {/* Deviation waveform — always shows full-file data */}
       <Waveform
-        tUniform={result?.t_uniform}
-        deviationPct={result?.deviation_pct}
-        wfPeak2Sigma={result?.wf_peak_2sigma}
+        tUniform={fullResult?.t_uniform}
+        deviationPct={fullResult?.deviation_pct}
+        wfPeak2Sigma={fullResult?.wf_peak_2sigma}
         totalDuration={audioInfo?.duration}
         harmonicOverlays={[]}
         processing={processing}
         onMeasureRegion={handleMeasureRegion}
+        lastMeasuredRegion={lastMeasuredRegion}
       />
 
-      {/* Results */}
+      {/* Results — shows active result (region or full-file) */}
       <StatsPanel
-        result={result}
+        result={activeResult}
         processing={processing}
-        duration={audioInfo?.duration}
+        duration={activeResult?.duration ?? audioInfo?.duration}
       />
     </Layout>
   );

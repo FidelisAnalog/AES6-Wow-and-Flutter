@@ -91,23 +91,24 @@ export default function WaveformMain({
       ctx.setLineDash([]);
     }
 
-    // Loop region visuals (dimming + highlight + handle lines)
+    // Loop region visuals
     const EPSILON = 0.001;
     const isFullFile = loopStart <= EPSILON && loopEnd >= (totalDuration || 1) - EPSILON;
-    if (!isFullFile && loopStart != null && loopEnd != null) {
-      const lx = timeToX(loopStart);
-      const rx = timeToX(loopEnd);
+    const lx = timeToX(loopStart);
+    const rx = timeToX(loopEnd);
 
-      // Dim outside loop region
+    // Dimming + region highlight — only when sub-region selected
+    if (!isFullFile && loopStart != null && loopEnd != null) {
       ctx.fillStyle = wf.loopDim;
       if (lx > 0) ctx.fillRect(0, 0, lx, height);
       if (rx < width) ctx.fillRect(rx, 0, width - rx, height);
 
-      // Loop region highlight
       ctx.fillStyle = wf.loopRegion;
       ctx.fillRect(lx, 0, rx - lx, height);
+    }
 
-      // Handle lines
+    // Handle lines + triangles — ALWAYS visible (Browser-ABX pattern)
+    if (loopStart != null && loopEnd != null) {
       ctx.strokeStyle = wf.loopHandle;
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -115,14 +116,13 @@ export default function WaveformMain({
       ctx.moveTo(rx, 0); ctx.lineTo(rx, height);
       ctx.stroke();
 
-      // Handle triangles (8px) at top and bottom of each handle
       ctx.fillStyle = wf.loopHandle;
-      // Start handle — triangles point right (outward = left, but visually pointing inward)
+      // Start handle triangles
       ctx.beginPath();
       ctx.moveTo(lx, 0); ctx.lineTo(lx + 8, 0); ctx.lineTo(lx, 8); ctx.closePath(); ctx.fill();
       ctx.beginPath();
       ctx.moveTo(lx, height); ctx.lineTo(lx + 8, height); ctx.lineTo(lx, height - 8); ctx.closePath(); ctx.fill();
-      // End handle — triangles point left
+      // End handle triangles
       ctx.beginPath();
       ctx.moveTo(rx, 0); ctx.lineTo(rx - 8, 0); ctx.lineTo(rx, 8); ctx.closePath(); ctx.fill();
       ctx.beginPath();

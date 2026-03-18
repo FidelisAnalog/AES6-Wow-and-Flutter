@@ -58,6 +58,7 @@ export default function LoopHandles({
   const endHitRight = Math.min(containerWidth, endX + HIT_OUTWARD);
   const endHitVisible = endHitRight > endHitLeft;
 
+  // --- Pointer handlers ---
   const handlePointerDown = useCallback((handle) => (e) => {
     // For mouse, narrow the effective hit zone
     if (e.pointerType === 'mouse') {
@@ -136,21 +137,13 @@ export default function LoopHandles({
             left: startHitLeft,
             width: startHitRight - startHitLeft,
             height: '100%',
-            cursor: 'default',
+            cursor: 'col-resize',
             touchAction: 'none',
             pointerEvents: 'auto',
             userSelect: 'none',
             WebkitTouchCallout: 'none',
           }}
         >
-          {/* Narrow cursor zone for mouse */}
-          <div style={{
-            position: 'absolute',
-            right: 0,
-            width: 8,
-            height: '100%',
-            cursor: 'col-resize',
-          }} />
         </div>
       )}
 
@@ -165,21 +158,14 @@ export default function LoopHandles({
             left: endHitLeft,
             width: endHitRight - endHitLeft,
             height: '100%',
-            cursor: 'default',
+            cursor: 'col-resize',
             touchAction: 'none',
             pointerEvents: 'auto',
             userSelect: 'none',
             WebkitTouchCallout: 'none',
           }}
         >
-          {/* Narrow cursor zone for mouse */}
-          <div style={{
-            position: 'absolute',
-            left: 0,
-            width: 8,
-            height: '100%',
-            cursor: 'col-resize',
-          }} />
+
         </div>
       )}
 
