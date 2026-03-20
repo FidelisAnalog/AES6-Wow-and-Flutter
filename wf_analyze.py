@@ -108,14 +108,19 @@ def analyze(wav_file, channel=0, rpm=None, motor_slots=None,
         'f_mean': f_mean,
         'wf_peak_2sigma': wf_peak_2sigma,
         'wf_peak_to_peak': wf_peak_to_peak,
-        'aes6': {
+        'standard': {
             'peak_unweighted': std['unweighted_peak']['value'],
             'rms_unweighted': std['unweighted_rms']['value'],
             'peak_weighted': std['weighted_peak']['value'],
             'rms_weighted': std['weighted_rms']['value'],
-            'drift_rms': nstd['drift_rms']['value'],
             'wow_rms': std['weighted_wow_rms']['value'],
             'flutter_rms': std['weighted_flutter_rms']['value'],
+        },
+        'non_standard': {
+            'drift_rms': nstd['drift_rms']['value'],
+            'wow_rms': nstd['unweighted_wow_rms']['value'],
+            'flutter_rms': nstd['unweighted_flutter_rms']['value'],
+            'peak_to_peak': wf_peak_to_peak,
         },
         'spectrum': result['plots']['spectrum'],
         'rpm': rpm,
@@ -128,7 +133,8 @@ def analyze(wav_file, channel=0, rpm=None, motor_slots=None,
 # ========================= PLOTTING =========================
 
 def plot_results(r, sec_per_rev=1.8, n_revs=4,
-                 motor_slots=None, motor_poles=None, rpm=33.333):
+                 motor_slots=None, motor_poles=None, rpm=33.333,
+                 polar_revs=2):
     """
     Generate diagnostic plots — identical layout to fg_analyze.
 
@@ -148,17 +154,20 @@ def plot_results(r, sec_per_rev=1.8, n_revs=4,
     ]
 
     # Title with key metrics
-    a = r['aes6']
+    s = r['standard']
+    ns = r['non_standard']
     fig.suptitle(
         f"{r['basename']}\n"
         f"Mean: {r['f_mean']:.3f} Hz    "
-        f"Drift: {a['drift_rms']:.4f}%    "
-        f"DIN/IEC Unwtd:  Peak(2σ) ±{a['peak_unweighted']:.4f}%    "
-        f"RMS {a['rms_unweighted']:.4f}%\n"
-        f"DIN/IEC Wtd:  Peak(2σ) ±{a['peak_weighted']:.4f}%    "
-        f"RMS {a['rms_weighted']:.4f}% (JIS)    "
-        f"Wow {a['wow_rms']:.4f}%    "
-        f"Flutter {a['flutter_rms']:.4f}%",
+        f"Drift: {ns['drift_rms']:.4f}%\n"
+        f"Unwtd Wow: {ns['wow_rms']:.4f}%    "
+        f"Unwtd Flutter: {ns['flutter_rms']:.4f}%    "
+        f"DIN/IEC Unwtd:  Peak(2σ) ±{s['peak_unweighted']:.4f}%    "
+        f"RMS {s['rms_unweighted']:.4f}%\n"
+        f"DIN/IEC Wtd:  Peak(2σ) ±{s['peak_weighted']:.4f}%    "
+        f"RMS {s['rms_weighted']:.4f}% (JIS)    "
+        f"Wow {s['wow_rms']:.4f}%    "
+        f"Flutter {s['flutter_rms']:.4f}%",
         fontsize=10, y=0.985)
 
     t_plot_end = sec_per_rev * n_revs
@@ -215,8 +224,11 @@ def plot_results(r, sec_per_rev=1.8, n_revs=4,
 
     from matplotlib.ticker import ScalarFormatter, NullFormatter, FixedLocator
     ax.set_xscale('log')
-    ax.set_xlim(0.4, min(50, fs_dev / 2))
-    ax.xaxis.set_major_locator(FixedLocator([0.5, 1, 2, 5, 10, 20, 50]))
+    f_max = freqs[-1] if len(freqs) > 0 else 50.0
+    ax.set_xlim(0.4, f_max)
+    # Build tick locations up to f_max
+    all_ticks = [t for t in [0.5, 1, 2, 5, 10, 20, 50, 100, 150, 200] if t <= f_max]
+    ax.xaxis.set_major_locator(FixedLocator(all_ticks))
     ax.xaxis.set_major_formatter(ScalarFormatter())
     ax.xaxis.set_minor_formatter(NullFormatter())
     ax.ticklabel_format(axis='x', style='plain')
@@ -301,7 +313,6 @@ def plot_results(r, sec_per_rev=1.8, n_revs=4,
     samples_per_rev = int(round(sec_per_rev * fs_dev))
     inst_freq = r['f_mean'] * (1.0 + r['deviation_pct'] / 100.0)
 
-    polar_revs = 2
     skip_revs = 1
     start_idx = skip_revs * samples_per_rev
 
@@ -405,6 +416,8 @@ if __name__ == '__main__':
                         help='Number of motor poles')
     parser.add_argument('--rpm', type=float, default=33.333,
                         help='Turntable RPM (default: 33.333)')
+    parser.add_argument('--polar-revs', type=int, default=2,
+                        help='Number of revolutions in polar plot (default: 2)')
     parser.add_argument('--lissajous-freq', type=float, default=None,
                         help='Frequency (Hz) for AM/FM Lissajous plot (audio only)')
     args = parser.parse_args()
@@ -413,7 +426,8 @@ if __name__ == '__main__':
                       motor_slots=args.motor_slots,
                       motor_poles=args.motor_poles)
     plot_results(results, motor_slots=args.motor_slots,
-                 motor_poles=args.motor_poles, rpm=args.rpm)
+                 motor_poles=args.motor_poles, rpm=args.rpm,
+                 polar_revs=args.polar_revs)
 
     if args.lissajous_freq is not None:
         if results['input_type'] != 'audio':

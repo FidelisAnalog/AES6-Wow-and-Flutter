@@ -37,7 +37,7 @@ from scipy.signal import find_peaks as _find_peaks
 
 # ========================= INTERNAL CONSTANTS =========================
 
-PREFILTER_BW_FACTOR = 0.30
+PREFILTER_BW_FACTOR = .45 #0.30
 PREFILTER_ORDER = 2
 SMOOTH_CYCLES = 1
 OUTLIER_THRESH_PCT = 10.0
@@ -468,11 +468,13 @@ def _compute_wf_metrics(deviation_frac, fs, carrier_freq, skip_seconds=0.0):
 
 # ========================= SPECTRUM =========================
 
-def _compute_spectrum(deviation_pct, output_rate, max_peaks=16,
-                      peak_threshold=0.02):
+def _compute_spectrum(deviation_pct, output_rate, max_freq=50.0,
+                      max_peaks=16, peak_threshold=0.02):
     """
     Compute deviation spectrum and detect peaks.
+    max_freq: upper frequency limit (Hz) — prefilter bw_hz for audio, 50 for device.
     Returns spectrum dict (freqs, amplitude, peaks without identity/coupling).
+    Arrays are truncated to max_freq.
     """
     N = len(deviation_pct)
     win = np.hanning(N)
@@ -482,11 +484,16 @@ def _compute_spectrum(deviation_pct, output_rate, max_peaks=16,
     amp = np.abs(X) * np.sqrt(2.0) / (np.sum(win) * np.sqrt(freqs[1]))
     fft_amp_bin = np.abs(X) * 2.0 / np.sum(win)
 
+    # Truncate to valid range
+    max_f = min(max_freq, output_rate / 2)
+    mask = freqs <= max_f
+    freqs = freqs[mask]
+    amp = amp[mask]
+    fft_amp_bin = fft_amp_bin[mask]
+
     if len(amp) > 1:
         pk_idx, _ = _find_peaks(amp, height=np.max(amp[1:]) * peak_threshold)
-        pk_idx = [p for p in pk_idx
-                  if freqs[p] > 0.3
-                  and freqs[p] < min(50, output_rate / 2)]
+        pk_idx = [p for p in pk_idx if freqs[p] > 0.3]
         pk_idx = sorted(pk_idx, key=lambda p: amp[p], reverse=True)[:max_peaks]
     else:
         pk_idx = []
@@ -768,12 +775,14 @@ def _parse_shaknspin_text(text_data):
         if len(parts) == 2:
             header[parts[0].strip().rstrip(':')] = parts[1].strip()
 
-    # Time-domain trace (2-column section)
+    # Time-domain trace: columns 0–1 (Time;Speed) are present in every data
+    # row.  4-column rows carry extra Freq;Magnitude for the spectrum but
+    # the speed trace is continuous across both sections (0 – ~8000 ms).
     td_time = []
     td_speed = []
     for line in lines[26:]:
         parts = line.strip().split(';')
-        if len(parts) == 2:
+        if len(parts) >= 2:
             try:
                 td_time.append(float(parts[0]))
                 td_speed.append(float(parts[1]))
@@ -925,7 +934,8 @@ def _analyze_audio(pcm_data, sample_rate):
 
     # 8. Spectrum + peaks
     _status("Computing spectrum...")
-    spectrum = _compute_spectrum(deviation_pct, output_rate)
+    spectrum = _compute_spectrum(deviation_pct, output_rate,
+                                 max_freq=bw_hz if bw_hz else 50.0)
 
 
     # Motor harmonic labels (conditional on rpm)
@@ -1040,7 +1050,7 @@ def _analyze_device(text_data, rpm=None):
 
     # Spectrum
     _status("Computing spectrum...")
-    spectrum = _compute_spectrum(deviation_pct, fs)
+    spectrum = _compute_spectrum(deviation_pct, fs, max_freq=50.0)
 
     # Motor harmonic labels
     _identify_motor_harmonics(spectrum['peaks'], f_rot,
