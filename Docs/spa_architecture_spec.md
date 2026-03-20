@@ -84,11 +84,12 @@ JS Rendering (main thread)
 When the user selects a measurement region via loop handles:
 
 1. Full-file deviation waveform **does not change** — it's from the initial run
-2. Python pipeline **re-runs on the raw audio segment** for the selected region
-3. Full pipeline re-runs on the segment (carrier detection and filter design are trivially fast — no caching needed)
-4. Zero-crossing detection and downstream processing **must re-run** — this is the expensive part
-5. All metrics, spectrum, polar, and histogram update to reflect the selected region
-6. UI shows processing indicator during re-run (non-blocking — Worker handles processing while main thread stays responsive)
+2. **Full-file measurement results are preserved** — the app keeps the full-file metrics, spectrum, and other analysis data so the user can revert to it (e.g., by resetting handles to full file or a "Show full-file results" action)
+3. Front-end slices the raw PCM for the selected region and sends it to `analyzeFull()` — no separate `analyzeRegion()` entry point needed
+4. Full pipeline re-runs on the segment (carrier detection and filter design are trivially fast — no caching needed)
+5. Zero-crossing detection and downstream processing **must re-run** — this is the expensive part
+6. All metrics, spectrum, polar, and histogram update to reflect the selected region
+7. UI shows processing indicator during re-run (non-blocking — Worker handles processing while main thread stays responsive)
 
 ---
 
@@ -101,7 +102,7 @@ Refactor `fg_analyze.py` into a clean module callable from Pyodide. Single entry
 **Pyodide MUST run in a dedicated Web Worker.** The Python pipeline takes 10–60+ seconds depending on file length and carrier frequency. Running on the main thread freezes the UI completely — no progress updates, no cancel, no responsiveness. This is not acceptable.
 
 Architecture:
-- `src/workers/pyodideWorker.js` — Web Worker that loads Pyodide, fetches and executes `wf_analyzer.py`, exposes `analyze`/`analyzeRegion` via `postMessage`
+- `src/workers/pyodideWorker.js` — Web Worker that loads Pyodide, fetches and executes `wf_analyzer.py`, exposes `analyze` via `postMessage`
 - `src/services/pyBridge.js` — Main-thread interface. Sends PCM data to worker via `postMessage` with `Transferable` ArrayBuffer (zero-copy). Receives status updates and results via `postMessage` callbacks.
 - **No `<script type="py">` in index.html** — Pyodide is loaded entirely within the Worker, not via PyScript tags on the main thread
 - Status callback: Worker posts `{type: 'status', message: '...'}` messages during processing → pyBridge dispatches to UI
@@ -155,9 +156,9 @@ Architecture:
 }
 ```
 
-### Region Re-processing Entry Point
+### Region Re-processing
 
-Separate function that accepts raw audio segment, runs the full pipeline (carrier detection and filter design are trivially fast — no caching needed), returns the same structure minus the full-file display data.
+No separate Python entry point needed. The front-end slices the raw PCM for the selected region and calls the same `analyze()` function. The full pipeline re-runs on the segment (carrier detection and filter design are trivially fast — no caching needed), returning the same result structure. The front-end is responsible for preserving the full-file result and waveform data.
 
 ---
 
@@ -220,11 +221,12 @@ The waveform and all interactive elements (handles, overview bar, gestures) must
 The user will adjust loop handles multiple times before settling on a region. The re-processing flow must account for this:
 
 - Region selection does **not** auto-trigger processing on handle release — a human won't nail the region on the first try
-- Explicit **"Measure"** button (or similar) to trigger re-processing of the selected region
+- Explicit **"Measure"** button to trigger re-processing of the selected region. Label changes to **"Re-measure"** after the first region analysis.
 - If re-processing is in flight and user triggers again, the in-flight run is **cancelled** and the new region is processed
 - Show processing indicator during re-run
 - Stats, spectrum, polar, histogram all update to selected region
 - Deviation waveform itself does not change (always shows initial full-file result)
+- **Full-file results are preserved.** When the user resets handles to full file, the original full-file metrics are restored without re-processing. The app maintains both the full-file result and the most recent region result.
 
 ---
 

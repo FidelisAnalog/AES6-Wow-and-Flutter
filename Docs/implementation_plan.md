@@ -99,21 +99,11 @@ Refactor `fg_analyze.py` → `public/python/wf_analyzer.py`. Key changes:
       """Compute spectrum and detect harmonic peaks. Returns (freqs, amplitude, peaks_list)."""
   ```
 
-**f) Add region re-processing entry point:**
-  ```python
-  def analyze_region(pcm_array, sample_rate, start_sec, end_sec):
-      """
-      Re-run the full pipeline on a sub-region of the audio.
-      No caching of carrier/coefficients — carrier detection and filter
-      design are trivially fast (microseconds). The expensive parts
-      (zero-crossing detection, sinc interpolation) must re-run regardless.
-      Same code path as analyze(), just on a shorter segment.
-      """
-  ```
-  This function:
-  - Extracts the audio segment: `pcm_array[int(start_sec * sr):int(end_sec * sr)]`
-  - Runs the full pipeline: carrier detect → prefilter → crossings → frequency → trim → outlier → interp → metrics
-  - Returns metrics, spectrum, polar/histogram data for the region (same structure as `analyze()` return)
+**f) Region re-processing — no separate entry point needed.**
+  The front-end slices the raw PCM for the selected region and calls the same `analyze()` function. No `analyze_region()` in Python. The full pipeline re-runs on the shorter segment, returning the same result structure. The front-end is responsible for:
+  - Preserving the full-file waveform data (t_uniform, deviation_pct) so it never changes
+  - Preserving the full-file measurement results so the user can revert
+  - Storing the region result separately from the full-file result
 
 **g) Motor harmonic labeling.** Keep the identification logic but make it optional:
   ```python
@@ -152,7 +142,6 @@ Refactor `fg_analyze.py` → `public/python/wf_analyzer.py`. Key changes:
   - Wires up a status callback that posts `{type: 'status', message}` to main thread
   - Listens for `postMessage` commands:
     - `{type: 'analyze', pcm: ArrayBuffer, sampleRate: int}` → runs `analyze()`, posts `{type: 'result', data}` or `{type: 'error', message, traceback}`
-    - `{type: 'analyzeRegion', pcm: ArrayBuffer, sampleRate, startSec, endSec}` → runs `analyze_region()`
   - Posts `{type: 'ready'}` when Pyodide + wf_analyzer.py are fully loaded
   - PCM received as `ArrayBuffer` (transferred, zero-copy), converted to numpy array inside Worker
 
@@ -160,7 +149,6 @@ Refactor `fg_analyze.py` → `public/python/wf_analyzer.py`. Key changes:
   Main-thread interface:
   - Spawns the Worker on init
   - Provides `analyzeFull(pcmData, sampleRate)` → Promise<AnalysisResult>
-  - Provides `analyzeRegion(pcmData, sampleRate, startSec, endSec)` → Promise<AnalysisResult>
   - Sends PCM as `Transferable` ArrayBuffer (zero-copy to Worker)
   - Dispatches Worker messages: `status` → `onStatus` callback, `result` → resolve Promise, `error` → `onError` callback / reject Promise
   - Exposes `isReady()` state (true after Worker posts `ready`)
@@ -386,23 +374,26 @@ The deviation array can be large (e.g., 3000 points/sec × 120s = 360K points). 
 
 ### 3.6 Loop Handles (Measurement Region)
 
-`LoopHandles` component:
+`LoopHandles` component — adapted from Browser-ABX `LoopRegion.jsx` + `Waveform.jsx` handle pattern:
 
 - Two draggable handles (start/end) visible in both overview and main view
+- **Handle lines and triangles are ALWAYS visible**, even at default full-file position — following Browser-ABX pattern where visuals (vertical lines + 8px corner triangles at top/bottom) render unconditionally. Only the dimming/shading of regions outside the selection is gated by `!isFullFile`.
 - Default: full file (handles at start and end)
 - Drag to select measurement region
 - **Hard enforce 5s minimum** — handles snap to maintain at least 5s selection
 - Display selected duration near the handles or in a label
 - Visual shading of the selected region vs unselected
 - When region < 20s: show indicator that drift requires 20s
+- Interaction: HTML overlay divs (outside scroll wrapper) provide hit areas; visuals rendered by canvas. Same architecture as Browser-ABX.
 
 ### 3.7 Measure Button
 
 - Button appears when loop handles are moved from default (full file)
-- Or always present, labeled "Re-measure" when region differs from last measured
-- Triggers `analyzeRegion()` call to Python
+- Label: **"Measure"** for first region analysis, **"Re-measure"** after that
+- Front-end slices raw PCM for the selected region and calls `analyzeFull()` — no separate `analyzeRegion()` needed
 - Disabled during processing, shows spinner
 - If clicked while processing is in-flight, cancel previous and start new
+- **Full-file results preserved:** App maintains both the full-file result and the most recent region result. When handles are reset to full file, the original full-file metrics are restored without re-processing. The deviation waveform always shows the full-file data.
 
 ### 3.8 Axis Scaling
 
