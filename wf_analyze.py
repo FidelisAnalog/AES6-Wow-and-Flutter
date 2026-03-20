@@ -18,12 +18,6 @@ import argparse
 import wf_core
 
 
-# ========================= CONFIG =========================
-
-WAV_FILE = 'Data/DA8925G004 Motor FG Post-refurb A_orig.wav'
-STEREO_CH = 0
-
-
 # ========================= WAV LOADER =========================
 
 def load_wav(filepath, channel=0):
@@ -46,21 +40,31 @@ def analyze(wav_file, channel=0, rpm=None, motor_slots=None,
     Returns a result dict structured for plot_results(), with the same
     keys as fg_analyze for backward compatibility.
     """
-    # Load
-    fs, sig = load_wav(wav_file, channel)
-    duration = len(sig) / fs
     basename = os.path.basename(wav_file)
-    print(f"Loaded: {basename}")
-    print(f"  Sample rate: {fs} Hz")
-    print(f"  Duration: {duration:.2f} s")
-    print(f"  Samples: {len(sig)}")
 
-    # Run engine
-    result = wf_core.analyzeFull(
-        sig, sampleRate=fs, inputType='audio',
-        rpm=rpm, motor_slots=motor_slots, motor_poles=motor_poles,
-        drive_ratio=drive_ratio,
-    )
+    # Detect input type by extension
+    ext = os.path.splitext(wav_file)[1].lower()
+    if ext == '.wav':
+        fs, sig = load_wav(wav_file, channel)
+        duration = len(sig) / fs
+        print(f"Loaded: {basename}")
+        print(f"  Sample rate: {fs} Hz")
+        print(f"  Duration: {duration:.2f} s")
+        print(f"  Samples: {len(sig)}")
+        result = wf_core.analyzeFull(
+            sig, sampleRate=fs, inputType='audio',
+            rpm=rpm, motor_slots=motor_slots, motor_poles=motor_poles,
+            drive_ratio=drive_ratio,
+        )
+    else:
+        with open(wav_file, 'r') as f:
+            text_data = f.read()
+        print(f"Loaded: {basename}")
+        result = wf_core.analyzeFull(
+            text_data, inputType='device',
+            rpm=rpm, motor_slots=motor_slots, motor_poles=motor_poles,
+            drive_ratio=drive_ratio,
+        )
 
     # Extract for convenience
     m = result['metrics']
@@ -116,6 +120,7 @@ def analyze(wav_file, channel=0, rpm=None, motor_slots=None,
         'spectrum': result['plots']['spectrum'],
         'rpm': rpm,
         'f_rot': m.get('f_rot'),
+        'input_type': m['input_type'],
         'available': result.get('available', {}),
     }
 
@@ -226,43 +231,20 @@ def plot_results(r, sec_per_rev=1.8, n_revs=4,
     else:
         peaks = []
 
-    # Motor harmonic color map
-    marker_colors = {
-        'rotation':       '#e41a1c',
-        'electrical':     '#4daf4a',
-        'slot passing':   '#984ea3',
-        'torque ripple':  '#ff7f00',
-    }
-
-    # Map label prefixes to color categories
-    def _peak_color_category(label):
-        if label is None:
-            return None
-        ll = label.lower()
-        for key in marker_colors:
-            if key in ll:
-                return key
-        return None
-
-    _unid_cmap = plt.cm.tab10
-    _unid_idx = 0
-
+    _cmap = plt.cm.tab10
+    have_motor = motor_slots is not None and motor_poles is not None
     legend_entries = []
-    for pk in peaks:
+    for i, pk in enumerate(peaks):
         f = pk['freq']
         a_val = pk['amplitude']
         bin_rms = pk['rms']
-        label = pk.get('label')
-        cat = _peak_color_category(label)
+        label = pk.get('label') if have_motor else None
+        color = _cmap(i % 10)
 
-        if cat:
-            color = marker_colors[cat]
-            # Format label like fg_analyze: "N× Category" or just "Category"
+        if label:
             legend_entries.append(
                 (color, f'{f:6.2f} Hz  {bin_rms:.4f}%  {label}'))
         else:
-            color = _unid_cmap(_unid_idx % 10)
-            _unid_idx += 1
             legend_entries.append(
                 (color, f'{f:6.2f} Hz  {bin_rms:.4f}%'))
 
@@ -378,23 +360,63 @@ def plot_results(r, sec_per_rev=1.8, n_revs=4,
     plt.close(fig)
 
 
+# ========================= LISSAJOUS PLOT =========================
+
+def plot_lissajous(r, freq):
+    """Plot AM/FM Lissajous at a single frequency. Audio only."""
+    liss = wf_core.getPlotData('lissajous', {'freq': freq})
+    am = np.array(liss['am_norm'])
+    fm = np.array(liss['fm_norm'])
+
+    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+    ax.plot(am, fm, linewidth=0.5, color='#2266aa', alpha=0.6)
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.set_aspect('equal')
+    ax.axhline(0, color='gray', linewidth=0.3)
+    ax.axvline(0, color='gray', linewidth=0.3)
+    ax.set_xlabel('AM (norm)')
+    ax.set_ylabel('FM (norm)')
+
+    sig_text = ' ★ significant' if liss['significant'] else ''
+    ax.set_title(f'AM/FM Lissajous — {r["basename"]}\n'
+                 f'{freq:.2f} Hz   R={liss["R"]:.3f}  '
+                 f'φ={liss["phase"]:.0f}°  '
+                 f'str={liss["strength"]:.5f}{sig_text}',
+                 fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    out_name = os.path.splitext(r['basename'])[0] + '_lissajous.png'
+    plt.savefig(out_name, dpi=150, bbox_inches='tight')
+    print(f"Saved: {out_name}")
+    plt.close(fig)
+
+
 # ========================= CLI =========================
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='W&F analyzer (wf_core engine)')
-    parser.add_argument('wav', nargs='?', default=WAV_FILE,
-                        help='WAV file to analyze')
+    parser.add_argument('input', help='Input file (WAV audio or device text export)')
     parser.add_argument('--motor-slots', type=int, default=None,
                         help='Number of motor slots')
     parser.add_argument('--motor-poles', type=int, default=None,
                         help='Number of motor poles')
     parser.add_argument('--rpm', type=float, default=33.333,
                         help='Turntable RPM (default: 33.333)')
+    parser.add_argument('--lissajous-freq', type=float, default=None,
+                        help='Frequency (Hz) for AM/FM Lissajous plot (audio only)')
     args = parser.parse_args()
 
-    results = analyze(args.wav, rpm=args.rpm,
+    results = analyze(args.input, rpm=args.rpm,
                       motor_slots=args.motor_slots,
                       motor_poles=args.motor_poles)
     plot_results(results, motor_slots=args.motor_slots,
                  motor_poles=args.motor_poles, rpm=args.rpm)
+
+    if args.lissajous_freq is not None:
+        if results['input_type'] != 'audio':
+            print("  Lissajous requires audio input — skipping")
+        else:
+            plot_lissajous(results, args.lissajous_freq)
