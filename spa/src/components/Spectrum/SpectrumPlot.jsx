@@ -112,11 +112,6 @@ export default function SpectrumPlot({
       const labelX = Math.min(x - metrics.width / 2, width - metrics.width - 4);
       const labelY = y - markerH - 6;
 
-      ctx.fillStyle = sp.labelBackground;
-      ctx.fillRect(
-        Math.max(0, labelX - 2), labelY - 10,
-        metrics.width + 4, 13
-      );
       ctx.fillStyle = sp.labelText;
       ctx.fillText(label, Math.max(2, labelX), labelY);
     }
