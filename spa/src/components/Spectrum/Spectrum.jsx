@@ -21,10 +21,11 @@ import AmplitudeAxis from './AmplitudeAxis.jsx';
 import PeakChips from './PeakChips.jsx';
 import useSpectrumData, { getAmpScale } from './useSpectrumData.js';
 import useSpectrumNavigation from './useSpectrumNavigation.js';
+import useResizableHeight from '../ResizeHandle.jsx';
 import { SPECTRUM_MIN_FREQ } from '../../config/constants.js';
 
-const PLOT_HEIGHT = 240;
-const TOTAL_HEIGHT = PLOT_HEIGHT + AXIS_HEIGHT;
+const DEFAULT_HEIGHT = 240;
+const STORAGE_KEY = 'spectrumHeight';
 const AXIS_WIDTH = 52;
 const EPSILON = 0.001;
 
@@ -38,6 +39,10 @@ function isViewZoomed(fMin, fMax, dFMin, dFMax) {
 
 export default function Spectrum({ spectrumData, onHarmonicSelect, processing = false }) {
   const theme = useTheme();
+
+  // Resizable plot height — drag bottom border of card
+  const { plotHeight, containerProps: resizeProps } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
+  const totalHeight = plotHeight + AXIS_HEIGHT;
 
   const freqs = spectrumData?.freqs;
   const amplitude = spectrumData?.amplitude;
@@ -121,7 +126,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
     viewFMin,
     viewFMax,
     width: containerWidth,
-    height: PLOT_HEIGHT,
+    height: plotHeight,
     lockedAmpMax,
     logAmpScale,
   });
@@ -239,7 +244,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
   if (!hasData) return null;
 
   return (
-    <Paper sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
+    <Paper {...resizeProps} sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
       {/* Overview bar */}
       <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <SpectrumOverview
@@ -261,7 +266,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
         <AmplitudeAxis
           ampMin={spData.ampMin}
           ampMax={spData.ampMax}
-          height={TOTAL_HEIGHT}
+          height={totalHeight}
           logScale={logAmpScale}
         />
 
@@ -278,7 +283,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
             cursor: 'pointer',
             border: `1px solid ${theme.palette.divider}`,
             borderTop: 'none',
-            minHeight: TOTAL_HEIGHT,
+            minHeight: totalHeight,
           }}
         >
           {containerWidth > 0 && (
@@ -286,7 +291,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
               ref={scrollRef}
               sx={{
                 width: '100%',
-                height: TOTAL_HEIGHT,
+                height: totalHeight,
                 overflowX: isZoomed ? 'scroll' : 'hidden',
                 overflowY: 'hidden',
                 overscrollBehaviorX: 'none',
@@ -296,7 +301,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
                 '&::-webkit-scrollbar': { display: 'none' },
               }}
             >
-              <div style={{ width: spacerWidth, height: TOTAL_HEIGHT }}>
+              <div style={{ width: spacerWidth, height: totalHeight }}>
                 <SpectrumPlot
                   freqs={freqs}
                   amplitude={amplitude}
@@ -309,7 +314,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
                   freqToX={spData.freqToX}
                   ampToY={spData.ampToY}
                   width={containerWidth}
-                  height={PLOT_HEIGHT}
+                  height={plotHeight}
                   logAmpScale={logAmpScale}
                   onTogglePeak={handleTogglePeak}
                   onResetZoom={resetZoom}

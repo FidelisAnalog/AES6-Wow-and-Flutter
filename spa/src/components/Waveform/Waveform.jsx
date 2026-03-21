@@ -26,10 +26,11 @@ import TimeAxis, { TIMELINE_HEIGHT } from './TimeAxis.jsx';
 import DeviationAxis from './DeviationAxis.jsx';
 import useWaveformData, { getYScale } from './useWaveformData.js';
 import useWaveformGestures from './useWaveformGestures.js';
+import useResizableHeight from '../ResizeHandle.jsx';
 import { MIN_MEASUREMENT_SECONDS } from '../../config/constants.js';
 
-const MAIN_HEIGHT = 240;
-const TOTAL_HEIGHT = MAIN_HEIGHT + TIMELINE_HEIGHT;
+const DEFAULT_HEIGHT = 240;
+const STORAGE_KEY = 'waveformHeight';
 const AXIS_WIDTH = 52;
 const EPSILON = 0.001;
 const REGION_MATCH_TOLERANCE = 0.01; // seconds
@@ -54,6 +55,10 @@ export default function Waveform({
   lastMeasuredRegion = null,
 }) {
   const theme = useTheme();
+
+  // Resizable plot height — drag bottom border of card
+  const { plotHeight, containerProps: resizeProps } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
+  const totalHeight = plotHeight + TIMELINE_HEIGHT;
 
   // View state
   const [viewStart, setViewStart] = useState(0);
@@ -123,7 +128,7 @@ export default function Waveform({
     viewStart,
     viewEnd,
     width: containerWidth,
-    height: MAIN_HEIGHT,
+    height: plotHeight,
     yBoundsExplicit: lockedYBounds,
     wfPeak2Sigma,
   });
@@ -235,7 +240,7 @@ export default function Waveform({
   if (!hasData) return null;
 
   return (
-    <Paper sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
+    <Paper {...resizeProps} sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
       {/* Overview bar — above main view */}
       <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <WaveformOverview
@@ -259,7 +264,7 @@ export default function Waveform({
         <DeviationAxis
           yMin={wfData.yMin}
           yMax={wfData.yMax}
-          height={TOTAL_HEIGHT}
+          height={totalHeight}
         />
 
         {/* Main area container — holds scroll wrapper and handle overlays */}
@@ -277,7 +282,7 @@ export default function Waveform({
             cursor: 'pointer',
             border: `1px solid ${theme.palette.divider}`,
             borderTop: 'none',
-            minHeight: TOTAL_HEIGHT,
+            minHeight: totalHeight,
           }}
         >
           {containerWidth > 0 && <>
@@ -286,7 +291,7 @@ export default function Waveform({
               ref={scrollRef}
               sx={{
                 width: '100%',
-                height: TOTAL_HEIGHT,
+                height: totalHeight,
                 overflowX: isZoomed ? 'scroll' : 'hidden',
                 overflowY: 'hidden',
                 overscrollBehaviorX: 'none',
@@ -296,7 +301,7 @@ export default function Waveform({
                 '&::-webkit-scrollbar': { display: 'none' },
               }}
             >
-              <div style={{ width: spacerWidth, height: TOTAL_HEIGHT }}>
+              <div style={{ width: spacerWidth, height: totalHeight }}>
                 {/* Canvas waveform (sticky so it stays visible while scrolling) */}
                 <WaveformMain
                   tUniform={tUniform}
@@ -315,7 +320,7 @@ export default function Waveform({
                   timeToX={wfData.timeToX}
                   deviationToY={wfData.deviationToY}
                   width={containerWidth}
-                  height={MAIN_HEIGHT}
+                  height={plotHeight}
                 />
 
                 {/* Timeline */}
@@ -333,7 +338,7 @@ export default function Waveform({
               loopEnd={loopEnd}
               totalDuration={totalDuration}
               containerWidth={containerWidth}
-              containerHeight={MAIN_HEIGHT}
+              containerHeight={plotHeight}
               timeToX={wfData.timeToX}
               xToTime={wfData.xToTime}
               gestureRef={gestureRef}
