@@ -27,7 +27,8 @@ export default function StatsPanel({ result, processing, duration }) {
     );
   }
 
-  const { aes6, carrier_freq, f_mean, t_uniform, spectrum } = result;
+  const { metrics, plots } = result;
+  const { standard, non_standard } = metrics;
   const showDrift = duration != null && duration >= MIN_DRIFT_SECONDS;
 
   return (
@@ -39,7 +40,7 @@ export default function StatsPanel({ result, processing, duration }) {
       {/* Carrier */}
       <MetricRow
         label="Carrier"
-        value={`${fmt(carrier_freq, 1)} Hz  |  Mean: ${fmt(f_mean)} Hz`}
+        value={`${fmt(metrics.carrier_freq, 1)} Hz  |  Mean: ${fmt(metrics.f_mean)} Hz`}
       />
 
       {/* DIN/IEC Unwtd */}
@@ -49,10 +50,10 @@ export default function StatsPanel({ result, processing, duration }) {
         </Typography>
         <MetricRow
           label="Peak (2σ)"
-          value={`±${fmt(aes6.peak_unweighted)}%`}
+          value={`±${fmt(standard.unweighted_peak.value)}%`}
           tooltip={UNWTD_TIP}
         />
-        <MetricRow label="RMS" value={`${fmt(aes6.rms_unweighted)}%`} />
+        <MetricRow label="RMS" value={`${fmt(standard.unweighted_rms.value)}%`} />
       </Box>
 
       {/* DIN/IEC Wtd */}
@@ -62,12 +63,21 @@ export default function StatsPanel({ result, processing, duration }) {
         </Typography>
         <MetricRow
           label="Peak (2σ)"
-          value={`±${fmt(aes6.peak_weighted)}%`}
+          value={`±${fmt(standard.weighted_peak.value)}%`}
           tooltip={WTD_TIP}
         />
-        <MetricRow label="RMS (JIS)" value={`${fmt(aes6.rms_weighted)}%`} />
-        <MetricRow label="Wow" value={`${fmt(aes6.wow_rms)}%`} />
-        <MetricRow label="Flutter" value={`${fmt(aes6.flutter_rms)}%`} />
+        <MetricRow label="RMS (JIS)" value={`${fmt(standard.weighted_rms.value)}%`} />
+        <MetricRow label="Wow" value={`${fmt(standard.weighted_wow_rms.value)}%`} />
+        <MetricRow label="Flutter" value={`${fmt(standard.weighted_flutter_rms.value)}%`} />
+      </Box>
+
+      {/* Unweighted Wow/Flutter (non-standard) */}
+      <Box sx={{ mt: 1.5 }}>
+        <Typography variant="caption" color="text.secondary">
+          Unwtd Wow/Flutter (non-standard)
+        </Typography>
+        <MetricRow label="Wow RMS" value={`${fmt(non_standard.unweighted_wow_rms.value)}%`} />
+        <MetricRow label="Flutter RMS" value={`${fmt(non_standard.unweighted_flutter_rms.value)}%`} />
       </Box>
 
       {/* Drift */}
@@ -76,7 +86,7 @@ export default function StatsPanel({ result, processing, duration }) {
           Drift (non-standard)
         </Typography>
         {showDrift ? (
-          <MetricRow label="Drift" value={`${fmt(aes6.drift_rms)}%`} />
+          <MetricRow label="Drift" value={`${fmt(non_standard.drift_rms.value)}%`} />
         ) : (
           <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', fontSize: '0.8rem' }}>
             Requires {MIN_DRIFT_SECONDS}s minimum signal for drift measurement
@@ -89,9 +99,9 @@ export default function StatsPanel({ result, processing, duration }) {
         <Typography variant="caption" color="text.secondary">
           Signal
         </Typography>
-        <MetricRow label="Duration" value={`${fmt(result.duration, 2)}s`} />
-        <MetricRow label="Deviation pts" value={`${t_uniform?.length ?? '—'}`} />
-        <MetricRow label="Peaks detected" value={`${spectrum?.peaks?.length ?? '—'}`} />
+        <MetricRow label="Duration" value={`${fmt(metrics.duration, 2)}s`} />
+        <MetricRow label="Deviation pts" value={`${plots?.dev_time?.t?.length ?? '—'}`} />
+        <MetricRow label="Peaks detected" value={`${plots?.spectrum?.peaks?.length ?? '—'}`} />
       </Box>
     </Paper>
   );

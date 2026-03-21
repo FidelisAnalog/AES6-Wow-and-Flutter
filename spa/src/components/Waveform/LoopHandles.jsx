@@ -132,18 +132,26 @@ export default function LoopHandles({
           onPointerDown={handlePointerDown('start')}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onLostPointerCapture={handlePointerUp}
           style={{
             position: 'absolute',
             left: startHitLeft,
             width: startHitRight - startHitLeft,
             height: '100%',
-            cursor: 'col-resize',
+            cursor: 'default',
             touchAction: 'none',
             pointerEvents: 'auto',
             userSelect: 'none',
             WebkitTouchCallout: 'none',
           }}
         >
+          <div style={{
+            position: 'absolute',
+            right: 0,
+            width: 8,
+            height: '100%',
+            cursor: 'col-resize',
+          }} />
         </div>
       )}
 
@@ -153,19 +161,26 @@ export default function LoopHandles({
           onPointerDown={handlePointerDown('end')}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onLostPointerCapture={handlePointerUp}
           style={{
             position: 'absolute',
             left: endHitLeft,
             width: endHitRight - endHitLeft,
             height: '100%',
-            cursor: 'col-resize',
+            cursor: 'default',
             touchAction: 'none',
             pointerEvents: 'auto',
             userSelect: 'none',
             WebkitTouchCallout: 'none',
           }}
         >
-
+          <div style={{
+            position: 'absolute',
+            left: 0,
+            width: 8,
+            height: '100%',
+            cursor: 'col-resize',
+          }} />
         </div>
       )}
 
