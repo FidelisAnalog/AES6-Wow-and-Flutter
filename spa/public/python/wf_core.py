@@ -580,7 +580,15 @@ def _identify_motor_harmonics(peaks, f_rot, motor_slots=None,
                     label = f'{n}× electrical' if n > 1 else 'electrical'
                     break
 
-        # Rotation harmonics (always available)
+        # Motor rotation harmonics (non-direct-drive only)
+        if label is None and drive_ratio != 1.0:
+            f_motor_rot = f_rot * drive_ratio
+            for n in range(1, 20):
+                if abs(f - n * f_motor_rot) < tol:
+                    label = f'{n}× motor rot' if n > 1 else 'motor rot'
+                    break
+
+        # Platter rotation harmonics (always available)
         if label is None:
             for n in range(1, 20):
                 if abs(f - n * f_rot) < tol:
