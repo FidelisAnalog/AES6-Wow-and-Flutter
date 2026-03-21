@@ -62,7 +62,7 @@ export default React.memo(function TimeAxis({ viewStart, viewEnd, width, y = 0 }
 
   return (
     <svg width={width} height={TIMELINE_HEIGHT} style={{ display: 'block', position: 'sticky', left: 0 }}>
-      <rect x={0} y={0} width={width} height={TIMELINE_HEIGHT} fill={theme.palette.background.paper} />
+      <rect x={0} y={0} width={width} height={TIMELINE_HEIGHT} fill={theme.palette.waveform.axisBackground} />
       {ticks.map((tick, i) => (
         <g key={i}>
           <line

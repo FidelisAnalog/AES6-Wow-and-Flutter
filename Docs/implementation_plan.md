@@ -420,6 +420,8 @@ The deviation array can be large (e.g., 3000 points/sec × 120s = 360K points). 
 
 **Goal:** Spectrum plot with selectable harmonic peaks that overlay on the deviation waveform.
 
+**Data source:** `wf_core.py` returns spectrum data inline in `plots.spectrum` (freqs, amplitude as spectral density in %/√Hz, and up to 16 detected peaks with labels and coupling metadata). Harmonic extraction is on-demand via `getPlotData('harmonic_extract', { freqs: [...] })`. Motor harmonic identification is done automatically in `wf_core.py` when `rpm`/`motor_slots`/`motor_poles` are provided — labels arrive on `peaks[].label`. No Python changes needed for this phase.
+
 ### 4.1 Spectrum Plot Component
 
 Create `src/components/Spectrum/`:
@@ -436,17 +438,18 @@ Create `src/components/Spectrum/`:
 
 - Log frequency X-axis, starting at 0.4 Hz
 - X-axis ticks at: 0.5, 1, 2, 5, 10, 20, 50 Hz
-- Y-axis: % RMS/√Hz
+- Y-axis: %/√Hz (spectral density — `plots.spectrum.amplitude` is already in this unit)
 - Line plot of spectrum amplitude vs frequency
 - Theme-aware colors
 - Y-axis auto-scaled by default; accept explicit bounds prop for future custom scaling (see 3.8)
 
 ### 4.3 Peak Detection + Display
 
-- Top 8–12 peaks auto-tagged (from Python data)
+- Up to 16 peaks returned by `wf_core.py` in `plots.spectrum.peaks[]`
+- Each peak has: `freq`, `amplitude`, `rms`, `fft_bin_index`, `label`, `am_coupled`, `coupling_strength`
 - Colored triangle markers (▼) at each peak, matching prototype style
 - Peak label: frequency (Hz) + RMS (%)
-- Motor harmonic labels when motor params provided (from Advanced panel)
+- Motor harmonic labels displayed when `peaks[].label` is non-null (already computed by `wf_core.py`)
 
 ### 4.4 Peak Selection — Desktop / Tablet
 
@@ -465,28 +468,27 @@ Create `src/components/Spectrum/`:
 ### 4.6 Harmonic Overlay on Waveform
 
 When peaks are selected:
-1. For each selected peak, extract the corresponding frequency component from the deviation signal
-   - Bandpass filter the deviation signal around the peak frequency (narrow band)
-   - This produces a time-series showing that harmonic's contribution
+1. Call `getPlotData('harmonic_extract', { freqs: [f1, f2, ...] })` with all selected peak frequencies
+   - Returns `{ components: [[float], ...] }` — one bandpassed deviation time-series per frequency
+   - Uses 4th-order Butterworth SOS bandpass via `sosfiltfilt` with smart bandwidth selection
+     (80% of f_rot to avoid sideband capture, 0.3 Hz floor, or 5% of center freq when f_rot unknown)
+   - Single batch call avoids JS↔Python round-trip overhead
 2. Pass these time-series to the Waveform component as `harmonicOverlays`
 3. Each overlay rendered in the peak's assigned color
 4. Deviation datum (main trace) becomes less prominent (reduced opacity)
 
-**Implementation note:** Harmonic extraction is already solved in `Utilities/fg_harmonics.py`.
-  The `extract_harmonic()` function uses 4th-order Butterworth SOS bandpass via `sosfiltfilt`
-  with smart bandwidth selection (80% of f_rot to avoid sideband capture, 0.3 Hz floor,
-  or 5% of center freq when f_rot is unknown). The overlay pattern (total signal dimmed,
-  components colored by identity) is also already implemented. Refactor this into the
-  Python module as-is — do not rewrite. Batch call for multiple harmonics to avoid
-  JS↔Python round-trip overhead.
-
 ### 4.7 Motor Harmonic Identification
 
-- When motor params (slots, poles, RPM) are provided via Advanced panel:
-  - Call `identify_motor_harmonics()` on the peaks list
-  - Color-code by source: Rotation (red), Electrical (green), Slot passing (purple), Torque ripple (orange)
-  - Unidentified peaks get sequential colors from a neutral palette
-- When motor params not provided: all peaks use the neutral palette
+- Motor harmonic labels are computed automatically by `wf_core.py` when `rpm`, `motor_slots`, `motor_poles`, and `drive_ratio` are passed to `analyzeFull()`
+- Frontend color-codes peaks by `label` prefix:
+  - Rotation harmonics (`N×rot`): red
+  - Motor rotation (`N× motor rot`): red variant
+  - Electrical (`N× electrical`): green
+  - Slot passing (`N× slot`): purple
+  - Torque ripple (`N× ripple`): orange
+  - Cogging (`cogging N×`): orange variant
+  - Unidentified (label is null): sequential colors from a neutral palette
+- When motor params not provided: all peaks use the neutral palette (all labels will be null or rotation-only)
 
 ---
 
@@ -502,13 +504,15 @@ When peaks are selected:
 - Feed into the same pre-processing pipeline as WAV
 - Reference: Browser-ABX FLAC integration
 
-### 5.2 URL File Loading
+### 5.2 URL File Loading — DONE
 
-- Parse `?file=<URL>` query parameter on app load
-- `fetch()` the URL → ArrayBuffer → process as WAV or FLAC
-- Dropbox URL handling: auto-append `?dl=1` if dropbox.com URL detected
-- Show loading indicator during fetch
-- Error handling for CORS failures, 404, etc.
+- ~~Parse `?file=<URL>` query parameter on app load~~
+- ~~`fetch()` the URL → ArrayBuffer → process as WAV or FLAC~~
+- ~~Dropbox URL handling: rewrite to `dl.dropboxusercontent.com` + `?dl=1`~~
+- ~~Show centered spinner (no file card) during URL load~~
+- ~~Error handling for CORS failures, 404, etc.~~
+- ~~Pyodide WASM eviction recovery (mobile Safari background)~~
+- ~~Retry logic (2 attempts with 250ms delay)~~
 
 ### 5.3 Advanced Panel
 

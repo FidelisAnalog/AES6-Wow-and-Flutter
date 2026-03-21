@@ -50,17 +50,21 @@ async function _init() {
     _onStatus?.('Loading Python runtime...');
 
     // Load Pyodide via script tag (dynamic import doesn't work through Vite)
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error('Failed to load Pyodide script'));
-      document.head.appendChild(script);
-    });
+    if (!globalThis.loadPyodide) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load Pyodide script'));
+        document.head.appendChild(script);
+      });
+    }
     _pyodide = await globalThis.loadPyodide();
 
-    _onStatus?.('Installing numpy + scipy...');
-    await _pyodide.loadPackage(['numpy', 'scipy']);
+    _onStatus?.('Installing numpy...');
+    await _pyodide.loadPackage(['numpy']);
+    _onStatus?.('Installing scipy...');
+    await _pyodide.loadPackage(['scipy']);
 
     _onStatus?.('Loading analyzer module...');
     const resp = await fetch('/python/wf_core.py');
@@ -85,6 +89,18 @@ async function _init() {
     _pyodide.runPython(`
 import json as _json
 import numpy as _np
+
+def _np_default(obj):
+    if isinstance(obj, _np.bool_):
+        return bool(obj)
+    if isinstance(obj, _np.integer):
+        return int(obj)
+    if isinstance(obj, _np.floating):
+        return float(obj)
+    if isinstance(obj, _np.ndarray):
+        return obj.tolist()
+    raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
+
 set_status_callback(_js_status_callback)
 `);
 
@@ -92,7 +108,7 @@ set_status_callback(_js_status_callback)
     globalThis.__pyodide = _pyodide;
     globalThis.__pyodideReady = true;
     globalThis.__pyodideInitPromise = _initPromise;
-    _onStatus?.('Python runtime ready');
+    _onStatus?.('Ready');
   } catch (err) {
     _onError?.(
       'Failed to initialize Python runtime',
@@ -240,7 +256,7 @@ _plot_error = None
 try:
     _params = _json.loads(_plot_params)
     _data = getPlotData(_plot_id, _params)
-    _plot_result = _json.dumps(_data, cls=_NumpyEncoder)
+    _plot_result = _json.dumps(_data, default=_np_default)
 except Exception as _e:
     _plot_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})
 finally:

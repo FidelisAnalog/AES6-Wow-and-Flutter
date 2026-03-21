@@ -1,61 +1,67 @@
 /**
- * Zoom/pan gesture state machine — adapted from Browser-ABX Waveform.
+ * Log-frequency zoom/pan gesture state machine — adapted from useWaveformGestures.
  *
- * Gesture state: 'idle' | 'wheel' | 'pinch' | 'overviewDrag' | 'handleDrag' | 'scroll' | 'waveformPan'
- * Single enum prevents conflicting interactions.
+ * All zoom/pan math operates in log10(Hz) space.
+ * Native scroll wrapper provides iOS momentum — no custom momentum math.
  *
  * Input methods:
  * - Ctrl+scroll / trackpad pinch → zoom centered on cursor
  * - Shift+scroll → horizontal pan
  * - Unmodified horizontal scroll → pan (when zoomed)
- * - Mouse drag on waveform → pan (touch uses native scroll)
+ * - Mouse drag on plot → pan (touch uses native scroll)
  * - Touch pinch → zoom
  * - Double-click → reset to full view
  * - Keyboard: +/- zoom, 0 reset, Shift+Arrow pan
- *
- * Native scroll wrapper provides iOS momentum — no custom momentum math.
  */
 
 import { useRef, useEffect, useCallback } from 'react';
+import { SPECTRUM_MIN_FREQ, SPECTRUM_MIN_VIEW_DECADES } from '../../config/constants.js';
 
-const MIN_VIEW_DURATION = 0.05; // 50ms minimum visible range
-const ZOOM_FACTOR = 0.008;      // zoom sensitivity for wheel events
-const PAN_FACTOR = 0.25;        // pan by 25% of view width per Shift+scroll step
+const ZOOM_FACTOR = 0.008;
+const PAN_FACTOR = 0.25;
 const EPSILON = 0.001;
 
-function isViewZoomed(vs, ve, dur) {
-  return vs > EPSILON || ve < dur - EPSILON;
+function logF(f) {
+  return Math.log10(Math.max(f, SPECTRUM_MIN_FREQ));
+}
+
+function isViewZoomed(fMin, fMax, dataFMin, dataFMax) {
+  return logF(fMin) > logF(dataFMin) + EPSILON || logF(fMax) < logF(dataFMax) - EPSILON;
 }
 
 /**
  * @param {object} params
- * @param {React.RefObject} params.containerRef - main waveform container
+ * @param {React.RefObject} params.containerRef - main spectrum container
  * @param {React.RefObject} params.scrollRef - scrollable wrapper
- * @param {number} params.viewStart
- * @param {number} params.viewEnd
- * @param {number} params.totalDuration
+ * @param {number} params.viewFMin - viewport lower frequency (Hz)
+ * @param {number} params.viewFMax - viewport upper frequency (Hz)
+ * @param {number} params.dataFMin - data lower bound (Hz)
+ * @param {number} params.dataFMax - data upper bound (Hz)
  * @param {number} params.containerWidth
- * @param {(start: number, end: number) => void} params.onViewChange
- * @param {React.MutableRefObject} params.gestureRef - shared gesture state
+ * @param {(fMin: number, fMax: number) => void} params.onViewChange
+ * @param {React.MutableRefObject} params.gestureRef
+ * @param {boolean} params.hasData
  */
-export default function useWaveformGestures({
+export default function useSpectrumNavigation({
   containerRef,
   scrollRef,
-  viewStart,
-  viewEnd,
-  totalDuration,
+  viewFMin,
+  viewFMax,
+  dataFMin,
+  dataFMax,
   containerWidth,
   onViewChange,
   gestureRef,
   hasData = false,
 }) {
-  // Mutable refs for latest values (avoid stale closures)
-  const viewStartRef = useRef(viewStart);
-  viewStartRef.current = viewStart;
-  const viewEndRef = useRef(viewEnd);
-  viewEndRef.current = viewEnd;
-  const durationRef = useRef(totalDuration);
-  durationRef.current = totalDuration;
+  const viewFMinRef = useRef(viewFMin);
+  viewFMinRef.current = viewFMin;
+  const viewFMaxRef = useRef(viewFMax);
+  viewFMaxRef.current = viewFMax;
+  const dataFMinRef = useRef(dataFMin);
+  dataFMinRef.current = dataFMin;
+  const dataFMaxRef = useRef(dataFMax);
+  dataFMaxRef.current = dataFMax;
   const widthRef = useRef(containerWidth);
   widthRef.current = containerWidth;
   const onViewChangeRef = useRef(onViewChange);
@@ -63,56 +69,70 @@ export default function useWaveformGestures({
 
   const scrollCausedViewChangeRef = useRef(false);
   const programmaticScrollRef = useRef(false);
-  const panDragRef = useRef({ startX: null, moved: false, viewStart: 0, viewEnd: 0 });
+  const panDragRef = useRef({ startX: null, moved: false, viewFMin: 0, viewFMax: 0 });
   const pinchRef = useRef(null);
 
-  // --- Zoom/pan helpers ---
+  // --- Zoom/pan helpers (all in log10 space) ---
 
-  const setUserView = useCallback((newStart, newEnd) => {
-    onViewChangeRef.current?.(newStart, newEnd);
+  const setUserView = useCallback((newFMin, newFMax) => {
+    onViewChangeRef.current?.(newFMin, newFMax);
   }, []);
 
   const applyZoom = useCallback((delta, centerX) => {
-    const dur = durationRef.current;
-    if (dur <= 0) return;
+    const dFMin = dataFMinRef.current;
+    const dFMax = dataFMaxRef.current;
+    const totalLogRange = logF(dFMax) - logF(dFMin);
+    if (totalLogRange <= 0) return;
 
-    const vs = viewStartRef.current;
-    const ve = viewEndRef.current;
-    const viewDur = ve - vs;
+    const vFMin = viewFMinRef.current;
+    const vFMax = viewFMaxRef.current;
+    const logMin = logF(vFMin);
+    const logMax = logF(vFMax);
+    const logDur = logMax - logMin;
     const w = widthRef.current;
 
-    const centerTime = w > 0 ? vs + (centerX / w) * viewDur : (vs + ve) / 2;
+    // Center frequency from cursor position
+    const centerLog = w > 0 ? logMin + (centerX / w) * logDur : (logMin + logMax) / 2;
     const scale = Math.exp(delta * ZOOM_FACTOR);
-    const newViewDur = Math.max(MIN_VIEW_DURATION, Math.min(dur, viewDur * scale));
+    const newLogDur = Math.max(SPECTRUM_MIN_VIEW_DECADES, Math.min(totalLogRange, logDur * scale));
 
     const ratio = w > 0 ? centerX / w : 0.5;
-    let newStart = centerTime - newViewDur * ratio;
-    let newEnd = centerTime + newViewDur * (1 - ratio);
+    let newLogMin = centerLog - newLogDur * ratio;
+    let newLogMax = centerLog + newLogDur * (1 - ratio);
 
-    if (newStart < 0) { newStart = 0; newEnd = Math.min(newViewDur, dur); }
-    if (newEnd > dur) { newEnd = dur; newStart = Math.max(0, dur - newViewDur); }
+    const dataLogMin = logF(dFMin);
+    const dataLogMax = logF(dFMax);
 
-    setUserView(newStart, newEnd);
+    if (newLogMin < dataLogMin) { newLogMin = dataLogMin; newLogMax = Math.min(dataLogMin + newLogDur, dataLogMax); }
+    if (newLogMax > dataLogMax) { newLogMax = dataLogMax; newLogMin = Math.max(dataLogMax - newLogDur, dataLogMin); }
+
+    setUserView(Math.pow(10, newLogMin), Math.pow(10, newLogMax));
   }, [setUserView]);
 
   const applyPan = useCallback((deltaFraction) => {
-    const dur = durationRef.current;
-    const vs = viewStartRef.current;
-    const ve = viewEndRef.current;
-    const viewDur = ve - vs;
-    const shift = viewDur * deltaFraction;
+    const dFMin = dataFMinRef.current;
+    const dFMax = dataFMaxRef.current;
+    const vFMin = viewFMinRef.current;
+    const vFMax = viewFMaxRef.current;
+    const logMin = logF(vFMin);
+    const logMax = logF(vFMax);
+    const logDur = logMax - logMin;
+    const shift = logDur * deltaFraction;
 
-    let newStart = vs + shift;
-    let newEnd = ve + shift;
+    let newLogMin = logMin + shift;
+    let newLogMax = logMax + shift;
 
-    if (newStart < 0) { newStart = 0; newEnd = viewDur; }
-    if (newEnd > dur) { newEnd = dur; newStart = Math.max(0, dur - viewDur); }
+    const dataLogMin = logF(dFMin);
+    const dataLogMax = logF(dFMax);
 
-    setUserView(newStart, newEnd);
+    if (newLogMin < dataLogMin) { newLogMin = dataLogMin; newLogMax = dataLogMin + logDur; }
+    if (newLogMax > dataLogMax) { newLogMax = dataLogMax; newLogMin = Math.max(dataLogMax - logDur, dataLogMin); }
+
+    setUserView(Math.pow(10, newLogMin), Math.pow(10, newLogMax));
   }, [setUserView]);
 
   const resetZoom = useCallback(() => {
-    setUserView(0, durationRef.current);
+    setUserView(dataFMinRef.current, dataFMaxRef.current);
   }, [setUserView]);
 
   // --- Wheel event handler (zoom + pan) ---
@@ -122,17 +142,12 @@ export default function useWaveformGestures({
     if (!el) return;
     let gestureEndTimer = null;
     let lastGestureScale = 1;
-    // Direction lock — don't preventDefault during detection phase.
-    // Native scroll handles vertical naturally. scrollRef's handleScroll
-    // is suppressed via gestureRef='detecting' so deltaX noise doesn't pan.
-    // Only once horizontal is confirmed do we preventDefault and take control.
-    let scrollAxis = null; // 'h' | 'v' | null
+    let scrollAxis = null;
     let axisTimer = null;
     let accumX = 0;
     let accumY = 0;
     const AXIS_TIMEOUT = 300;
-    const H_LOCK = 6;           // px accumX must lead accumY to lock horizontal
-
+    const H_LOCK = 6;
 
     const startWheelGesture = () => {
       gestureRef.current = 'wheel';
@@ -143,7 +158,6 @@ export default function useWaveformGestures({
     };
 
     const resetAxis = () => {
-      // console.log(`[wf] === RESET (was axis:${scrollAxis ?? 'null'} accX:${accumX.toFixed(1)} accY:${accumY.toFixed(1)}) ===`);
       scrollAxis = null;
       accumX = 0;
       accumY = 0;
@@ -152,84 +166,61 @@ export default function useWaveformGestures({
 
     const handleWheel = (e) => {
       if (e.ctrlKey || e.metaKey) {
-        // Ctrl+scroll or trackpad pinch → zoom
         e.preventDefault();
         startWheelGesture();
         const rect = el.getBoundingClientRect();
         const x = e.clientX - rect.left;
         applyZoom(e.deltaY, x);
       } else if (e.shiftKey) {
-        // Shift+scroll → horizontal pan (proportional to scroll amount)
         e.preventDefault();
         startWheelGesture();
         const delta = e.deltaX || e.deltaY;
         applyPan(delta / 500);
       } else {
-        // Reset axis lock timer on every event
         if (axisTimer) clearTimeout(axisTimer);
         axisTimer = setTimeout(resetAxis, AXIS_TIMEOUT);
 
-        // Accumulate continuously
         accumX += Math.abs(e.deltaX);
         accumY += Math.abs(e.deltaY);
 
-        const prevAxis = scrollAxis;
-
         if (scrollAxis === 'h') {
-          // Locked horizontal — always prevent default to block browser back/forward
           e.preventDefault();
-          const vs = viewStartRef.current;
-          const ve = viewEndRef.current;
-          const dur = durationRef.current;
-          if (isViewZoomed(vs, ve, dur)) {
+          const vFMin = viewFMinRef.current;
+          const vFMax = viewFMaxRef.current;
+          const dFMin = dataFMinRef.current;
+          const dFMax = dataFMaxRef.current;
+          if (isViewZoomed(vFMin, vFMax, dFMin, dFMax)) {
             startWheelGesture();
             applyPan(e.deltaX / 500);
           }
         } else if (scrollAxis === 'v') {
-          // Locked vertical — do nothing, native scroll handles it
+          // native scroll
         } else {
-          // Undecided — suppress scrollRef's handleScroll so deltaX noise doesn't pan.
-          // Always preventDefault horizontal-dominant events to block browser back/forward.
           gestureRef.current = 'detecting';
           if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
             e.preventDefault();
           }
 
-          // Try to lock
           if (accumX > accumY + H_LOCK) {
             scrollAxis = 'h';
-            // Immediately handle this event as horizontal
             e.preventDefault();
-            const vs = viewStartRef.current;
-            const ve = viewEndRef.current;
-            const dur = durationRef.current;
-            if (isViewZoomed(vs, ve, dur)) {
+            const vFMin = viewFMinRef.current;
+            const vFMax = viewFMaxRef.current;
+            const dFMin = dataFMinRef.current;
+            const dFMax = dataFMaxRef.current;
+            if (isViewZoomed(vFMin, vFMax, dFMin, dFMax)) {
               startWheelGesture();
               applyPan(e.deltaX / 500);
             }
           } else if (accumY > accumX) {
-            // Y leads at all → lock vertical, native scroll is already handling it
             scrollAxis = 'v';
             gestureRef.current = 'idle';
           }
-          // else: keep accumulating, native scroll passes through
         }
-
-        // Diagnostic logging (commented out — re-enable for gesture debugging)
-        // const locked = scrollAxis !== prevAxis && scrollAxis !== null;
-        // console.log(
-        //   `[wf] dX:${e.deltaX.toFixed(1)} dY:${e.deltaY.toFixed(1)} | ` +
-        //   `accX:${accumX.toFixed(1)} accY:${accumY.toFixed(1)} | ` +
-        //   `axis:${scrollAxis ?? 'null'}${locked ? ' ←LOCK' : ''} | ` +
-        //   `pd:${e.defaultPrevented} gesture:${gestureRef.current}`
-        // );
       }
     };
 
-    // Safari gesture events for trackpad pinch.
-    // gesturestart fires for ALL two-finger trackpad interactions (scroll too).
-    // Only preventDefault when scale changes (real pinch), otherwise native
-    // vertical scroll is blocked.
+    // Safari gesture events for trackpad pinch
     let gestureIsPinch = false;
 
     const handleGestureStart = (e) => {
@@ -243,7 +234,6 @@ export default function useWaveformGestures({
       if (!gestureIsPinch) return;
 
       e.preventDefault();
-      // pinch overrides any scroll
       startWheelGesture();
       const rect = el.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -281,8 +271,8 @@ export default function useWaveformGestures({
     if (!el) return;
 
     let initialDistance = 0;
-    let initialViewStart = 0;
-    let initialViewEnd = 0;
+    let initialLogMin = 0;
+    let initialLogMax = 0;
     let pinchActive = false;
     let gestureEndTimer = null;
 
@@ -297,8 +287,8 @@ export default function useWaveformGestures({
         pinchActive = true;
         gestureRef.current = 'pinch';
         initialDistance = getDistance(e.touches[0], e.touches[1]);
-        initialViewStart = viewStartRef.current;
-        initialViewEnd = viewEndRef.current;
+        initialLogMin = logF(viewFMinRef.current);
+        initialLogMax = logF(viewFMaxRef.current);
       }
     };
 
@@ -308,23 +298,26 @@ export default function useWaveformGestures({
       const scale = initialDistance / newDist;
       const rect = el.getBoundingClientRect();
       const midX = getMidX(e.touches[0], e.touches[1], rect);
-      const dur = durationRef.current;
       const w = widthRef.current;
 
-      const initialViewDur = initialViewEnd - initialViewStart;
-      const newViewDur = Math.max(MIN_VIEW_DURATION, Math.min(dur, initialViewDur * scale));
-      const centerTime = w > 0
-        ? initialViewStart + (midX / w) * initialViewDur
-        : (initialViewStart + initialViewEnd) / 2;
+      const dataLogMin = logF(dataFMinRef.current);
+      const dataLogMax = logF(dataFMaxRef.current);
+      const totalLogRange = dataLogMax - dataLogMin;
+
+      const initialLogDur = initialLogMax - initialLogMin;
+      const newLogDur = Math.max(SPECTRUM_MIN_VIEW_DECADES, Math.min(totalLogRange, initialLogDur * scale));
+      const centerLog = w > 0
+        ? initialLogMin + (midX / w) * initialLogDur
+        : (initialLogMin + initialLogMax) / 2;
 
       const ratio = w > 0 ? midX / w : 0.5;
-      let newStart = centerTime - newViewDur * ratio;
-      let newEnd = centerTime + newViewDur * (1 - ratio);
+      let newLogMin = centerLog - newLogDur * ratio;
+      let newLogMax = centerLog + newLogDur * (1 - ratio);
 
-      if (newStart < 0) { newStart = 0; newEnd = Math.min(newViewDur, dur); }
-      if (newEnd > dur) { newEnd = dur; newStart = Math.max(0, dur - newViewDur); }
+      if (newLogMin < dataLogMin) { newLogMin = dataLogMin; newLogMax = Math.min(dataLogMin + newLogDur, dataLogMax); }
+      if (newLogMax > dataLogMax) { newLogMax = dataLogMax; newLogMin = Math.max(dataLogMax - newLogDur, dataLogMin); }
 
-      setUserView(newStart, newEnd);
+      setUserView(Math.pow(10, newLogMin), Math.pow(10, newLogMax));
     };
 
     const handleTouchEnd = () => {
@@ -361,20 +354,26 @@ export default function useWaveformGestures({
         return;
       }
       if (gestureRef.current === 'overviewDrag' || gestureRef.current === 'detecting') return;
-      const dur = durationRef.current;
-      const vs = viewStartRef.current;
-      const ve = viewEndRef.current;
-      const viewDur = ve - vs;
-      const w = widthRef.current;
-      if (dur <= 0 || w <= 0 || viewDur >= dur - EPSILON) return;
 
-      const spacerW = w * (dur / viewDur);
+      const dFMin = dataFMinRef.current;
+      const dFMax = dataFMaxRef.current;
+      const vFMin = viewFMinRef.current;
+      const vFMax = viewFMaxRef.current;
+      const dataLogMin = logF(dFMin);
+      const dataLogMax = logF(dFMax);
+      const logDur = logF(vFMax) - logF(vFMin);
+      const totalLogRange = dataLogMax - dataLogMin;
+      const w = widthRef.current;
+
+      if (totalLogRange <= 0 || w <= 0 || logDur >= totalLogRange - EPSILON) return;
+
+      const spacerW = w * (totalLogRange / logDur);
       const maxScroll = spacerW - w;
       if (maxScroll <= 0) return;
 
       const scrollLeft = el.scrollLeft;
-      const newStart = (scrollLeft / maxScroll) * (dur - viewDur);
-      const newEnd = newStart + viewDur;
+      const newLogMin = dataLogMin + (scrollLeft / maxScroll) * (totalLogRange - logDur);
+      const newLogMax = newLogMin + logDur;
 
       scrollCausedViewChangeRef.current = true;
       gestureRef.current = 'scroll';
@@ -384,8 +383,8 @@ export default function useWaveformGestures({
       }, 150);
 
       setUserView(
-        Math.max(0, Math.min(newStart, dur - viewDur)),
-        Math.max(viewDur, Math.min(newEnd, dur))
+        Math.pow(10, Math.max(dataLogMin, Math.min(newLogMin, dataLogMax - logDur))),
+        Math.pow(10, Math.max(dataLogMin + logDur, Math.min(newLogMax, dataLogMax)))
       );
     };
 
@@ -396,11 +395,7 @@ export default function useWaveformGestures({
     };
   }, [setUserView, scrollRef, gestureRef, containerWidth, hasData]);
 
-  // --- Waveform pointer handlers: drag-to-pan (mouse only, touch uses native scroll) ---
-  // Attached to scrollRef (inside scroll wrapper), NOT containerRef.
-  // Handle overlays sit outside the scroll wrapper on containerRef —
-  // keeping pan handlers on scrollRef prevents pointer event conflicts
-  // (same pattern as Browser-ABX where pan is on the SVG, not the container).
+  // --- Pointer drag-to-pan (mouse only, touch uses native scroll) ---
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -409,15 +404,14 @@ export default function useWaveformGestures({
     const handlePointerDown = (e) => {
       if (gestureRef.current === 'handleDrag') return;
       if (e.button !== 0) return;
-      // Don't capture for touch — let browser handle native scroll
       if (e.pointerType !== 'touch') {
         e.target.setPointerCapture(e.pointerId);
       }
       panDragRef.current = {
         startX: e.clientX,
         moved: false,
-        viewStart: viewStartRef.current,
-        viewEnd: viewEndRef.current,
+        viewFMin: viewFMinRef.current,
+        viewFMax: viewFMaxRef.current,
       };
     };
 
@@ -428,20 +422,26 @@ export default function useWaveformGestures({
       if (!pd.moved && Math.abs(dx) > 3) {
         pd.moved = true;
       }
-      // Mouse drag-to-pan (touch uses native scroll instead)
       if (pd.moved && e.pointerType !== 'touch') {
         const w = widthRef.current;
-        const dur = durationRef.current;
-        if (w > 0 && dur > 0) {
-          const origViewDur = pd.viewEnd - pd.viewStart;
-          const dTime = -(dx / w) * origViewDur;
-          let newStart = pd.viewStart + dTime;
-          let newEnd = pd.viewEnd + dTime;
-          if (newStart < 0) { newStart = 0; newEnd = origViewDur; }
-          if (newEnd > dur) { newEnd = dur; newStart = Math.max(0, dur - origViewDur); }
+        const dFMin = dataFMinRef.current;
+        const dFMax = dataFMaxRef.current;
+        if (w > 0) {
+          const origLogMin = logF(pd.viewFMin);
+          const origLogMax = logF(pd.viewFMax);
+          const origLogDur = origLogMax - origLogMin;
+          const dLog = -(dx / w) * origLogDur;
+          let newLogMin = origLogMin + dLog;
+          let newLogMax = origLogMax + dLog;
+
+          const dataLogMin = logF(dFMin);
+          const dataLogMax = logF(dFMax);
+          if (newLogMin < dataLogMin) { newLogMin = dataLogMin; newLogMax = dataLogMin + origLogDur; }
+          if (newLogMax > dataLogMax) { newLogMax = dataLogMax; newLogMin = Math.max(dataLogMax - origLogDur, dataLogMin); }
+
           gestureRef.current = 'waveformPan';
           el.style.cursor = 'grabbing';
-          setUserView(newStart, newEnd);
+          setUserView(Math.pow(10, newLogMin), Math.pow(10, newLogMax));
         }
       }
     };
@@ -456,7 +456,6 @@ export default function useWaveformGestures({
       pd.startX = null;
     };
 
-    // Double-click: reset to full view
     const handleDblClick = () => {
       resetZoom();
     };
@@ -474,7 +473,7 @@ export default function useWaveformGestures({
       el.removeEventListener('pointercancel', handlePointerUp);
       el.removeEventListener('dblclick', handleDblClick);
     };
-  }, [setUserView, resetZoom, scrollRef, gestureRef, hasData, containerWidth]);
+  }, [setUserView, resetZoom, scrollRef, gestureRef, hasData]);
 
   // --- Keyboard shortcuts ---
 
@@ -485,14 +484,12 @@ export default function useWaveformGestures({
 
       if (e.key === '+' || e.key === '=') {
         e.preventDefault();
-        const w = widthRef.current;
-        applyZoom(-30, w / 2);
+        applyZoom(-30, widthRef.current / 2);
         return;
       }
       if (e.key === '-') {
         e.preventDefault();
-        const w = widthRef.current;
-        applyZoom(30, w / 2);
+        applyZoom(30, widthRef.current / 2);
         return;
       }
       if (e.key === '0' && !e.ctrlKey && !e.metaKey) {
@@ -517,23 +514,12 @@ export default function useWaveformGestures({
   }, [applyZoom, applyPan, resetZoom]);
 
   // Toolbar-friendly zoom functions
-  const zoomIn = useCallback(() => {
-    const w = widthRef.current;
-    applyZoom(-30, w / 2);
-  }, [applyZoom]);
+  const zoomIn = useCallback(() => applyZoom(-30, widthRef.current / 2), [applyZoom]);
+  const zoomOut = useCallback(() => applyZoom(30, widthRef.current / 2), [applyZoom]);
 
-  const zoomOut = useCallback(() => {
-    const w = widthRef.current;
-    applyZoom(30, w / 2);
-  }, [applyZoom]);
-
-  // Zoom state for toolbar button disabled states
-  const vs = viewStartRef.current;
-  const ve = viewEndRef.current;
-  const dur = durationRef.current;
-  const zoomed = isViewZoomed(vs, ve, dur);
-  const viewDur = ve - vs;
-  const maxZoom = viewDur <= MIN_VIEW_DURATION + EPSILON;
+  const zoomed = isViewZoomed(viewFMin, viewFMax, dataFMin, dataFMax);
+  const logDur = logF(viewFMax) - logF(viewFMin);
+  const maxZoom = logDur <= SPECTRUM_MIN_VIEW_DECADES + EPSILON;
 
   return {
     scrollCausedViewChangeRef,
