@@ -16,7 +16,8 @@ function fmt(val, decimals = 4) {
 export default function StatsPanel({ result, processing, duration }) {
   if (!result && !processing) return null;
 
-  if (processing) {
+  // No result yet (first load) — show skeleton placeholder
+  if (!result && processing) {
     return (
       <Paper sx={{ p: 2 }}>
         <Typography variant="subtitle2" gutterBottom>AES6-2008 Metrics</Typography>
@@ -32,7 +33,7 @@ export default function StatsPanel({ result, processing, duration }) {
   const showDrift = duration != null && duration >= MIN_DRIFT_SECONDS;
 
   return (
-    <Paper sx={{ p: 2 }}>
+    <Paper sx={{ p: 2, opacity: processing ? 0.5 : 1, transition: 'opacity 0.2s' }}>
       <Typography variant="subtitle2" gutterBottom>
         AES6-2008 Metrics
       </Typography>

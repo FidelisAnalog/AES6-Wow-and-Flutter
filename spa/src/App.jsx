@@ -19,6 +19,7 @@ function App() {
   const { file: fileUrl } = useQueryParams();
   const [pyReady, setPyReady] = useState(false);
   const [status, setStatus] = useState('Loading Python runtime...');
+  const statusRef = useRef(null); // direct DOM updates during analysis to avoid re-renders
   const [processing, setProcessing] = useState(false);
   const [audioInfo, setAudioInfo] = useState(null);
   const [error, setError] = useState(null);
@@ -39,7 +40,8 @@ function App() {
     initPyBridge();
 
     onStatus((msg) => {
-      setStatus(msg);
+      // During analysis, update DOM directly to avoid React re-renders that scroll the page
+      if (statusRef.current) statusRef.current.textContent = msg;
       if (msg === 'Python runtime ready') {
         setPyReady(true);
         setStatus('Ready \u2014 drop a file to analyze');
@@ -59,6 +61,7 @@ function App() {
       }
       setProcessing(false);
       setStatus('Analysis complete');
+      if (statusRef.current) statusRef.current.textContent = 'Analysis complete';
     });
 
     onError((msg, traceback) => {
@@ -95,7 +98,7 @@ function App() {
 
       setProcessing(true);
       setStatus('Starting analysis...');
-      analyzeFull(pcm, audio.sampleRate);
+      await analyzeFull(pcm, audio.sampleRate);
     } catch (e) {
       setError(String(e));
     }
@@ -120,7 +123,7 @@ function App() {
         setAudioInfo(audioMeta);
         setProcessing(true);
         setStatus('Starting analysis...');
-        analyzeFull(pcm, audio.sampleRate);
+        await analyzeFull(pcm, audio.sampleRate);
       } catch (e) {
         setError(String(e));
         setStatus('URL load failed');
@@ -179,14 +182,19 @@ function App() {
       {/* Status row — with inline file chooser after first load */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         {processing && <CircularProgress size={14} />}
-        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+        <Typography ref={statusRef} variant="body2" color="text.secondary" sx={{ flex: 1 }}>
           {status}
         </Typography>
         {hasFile && <FileInput onFileSelected={handleFile} disabled={!pyReady} compact />}
       </Box>
 
-      {/* Hero file input — only before first file is loaded */}
-      {!hasFile && <FileInput onFileSelected={handleFile} disabled={!pyReady} />}
+      {/* Hero file input — only before first file is loaded, hidden when URL loading */}
+      {!hasFile && !fileUrl && <FileInput onFileSelected={handleFile} disabled={!pyReady} />}
+      {!hasFile && fileUrl && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '50%', height: '50vh', mx: 'auto', my: 'auto' }}>
+          <CircularProgress size={32} />
+        </Box>
+      )}
 
       {/* File info */}
       <FileInfo audioInfo={audioInfo} />

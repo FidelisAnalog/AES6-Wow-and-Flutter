@@ -17,12 +17,31 @@ let _initPromise = globalThis.__pyodideInitPromise ?? null;
 
 const PYODIDE_VERSION = '0.27.5';
 
+/** Check if Pyodide's WASM memory is still alive (mobile Safari evicts on background). */
+function _pyodideAlive() {
+  if (!_pyodide) return false;
+  try {
+    _pyodide.runPython('1');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Initialize the Python bridge. Call once on app mount.
  * Loads Pyodide, numpy, scipy, and wf_core.py on the main thread.
+ * Re-initializes if WASM memory was evicted (mobile Safari background).
  */
 export function initPyBridge() {
-  if (_initPromise) return; // Already initialized (React StrictMode double-mount)
+  if (_initPromise && _pyodideAlive()) return;
+  // WASM dead or never initialized — reset and start fresh
+  _pyodide = null;
+  _ready = false;
+  _initPromise = null;
+  globalThis.__pyodide = null;
+  globalThis.__pyodideReady = false;
+  globalThis.__pyodideInitPromise = null;
   _initPromise = _init();
 }
 
@@ -98,21 +117,7 @@ export function isReady() { return _ready; }
  * @param {Float32Array|Float64Array} pcmData
  * @param {number} sampleRate
  */
-export async function analyzeFull(pcmData, sampleRate) {
-  if (!_ready) {
-    _onError?.('Python runtime not ready', '');
-    return;
-  }
-
-  const f64 = pcmData instanceof Float64Array
-    ? pcmData
-    : new Float64Array(pcmData);
-
-  try {
-    _pyodide.globals.set('_pcm_data', f64);
-    _pyodide.globals.set('_sample_rate', sampleRate);
-
-    await _pyodide.runPythonAsync(`
+const _ANALYSIS_PY = `
 import numpy as np
 import traceback as _tb
 
@@ -154,22 +159,59 @@ finally:
         if _v in dir():
             exec(f'del {_v}')
     import gc; gc.collect()
-`);
+`;
 
-    const resultJson = _pyodide.globals.get('_worker_result');
-    const errorJson = _pyodide.globals.get('_worker_error');
+const MAX_RETRIES = 2;
 
-    _pyodide.runPython('del _worker_result, _worker_error');
-
-    if (errorJson) {
-      const err = JSON.parse(errorJson);
-      _onError?.(err.message, err.traceback);
-    } else if (resultJson) {
-      const data = JSON.parse(resultJson);
-      _onResult?.(data);
+export async function analyzeFull(pcmData, sampleRate) {
+  if (!_ready || !_pyodideAlive()) {
+    console.warn('[wf_core] Pyodide not ready or WASM evicted, reinitializing...');
+    _onStatus?.('Reinitializing Python runtime...');
+    initPyBridge();
+    await _initPromise;
+    if (!_ready) {
+      _onError?.('Python runtime failed to reinitialize', '');
+      return;
     }
-  } catch (err) {
-    _onError?.(String(err), err?.stack || '');
+  }
+
+  const f64 = pcmData instanceof Float64Array
+    ? pcmData
+    : new Float64Array(pcmData);
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      _pyodide.globals.set('_pcm_data', f64);
+      _pyodide.globals.set('_sample_rate', sampleRate);
+
+      await _pyodide.runPythonAsync(_ANALYSIS_PY);
+
+      const resultJson = _pyodide.globals.get('_worker_result');
+      const errorJson = _pyodide.globals.get('_worker_error');
+
+      _pyodide.runPython('del _worker_result, _worker_error');
+
+      if (errorJson) {
+        const err = JSON.parse(errorJson);
+        if (attempt < MAX_RETRIES - 1) {
+          console.warn(`[wf_core] Attempt ${attempt + 1} failed: ${err.message}, retrying...`);
+          await new Promise(r => setTimeout(r, 250));
+          continue;
+        }
+        _onError?.(err.message, err.traceback);
+      } else if (resultJson) {
+        const data = JSON.parse(resultJson);
+        _onResult?.(data);
+      }
+      return;
+    } catch (err) {
+      if (attempt < MAX_RETRIES - 1) {
+        console.warn(`[wf_core] Attempt ${attempt + 1} threw: ${err}, retrying...`);
+        await new Promise(r => setTimeout(r, 250));
+        continue;
+      }
+      _onError?.(String(err), err?.stack || '');
+    }
   }
 }
 
