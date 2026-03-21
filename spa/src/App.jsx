@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Typography, CircularProgress, Box } from '@mui/material';
 import Layout from './components/Layout/Layout.jsx';
 import FileInput from './components/FileInput/FileInput.jsx';
-import FileInfo from './components/FileInput/FileInfo.jsx';
 import ErrorDisplay from './components/ErrorDisplay.jsx';
 import StatsPanel from './components/StatsPanel/StatsPanel.jsx';
 import Waveform from './components/Waveform/Waveform.jsx';
@@ -247,11 +246,16 @@ function App() {
         </Box>
       )}
 
-      {/* File info */}
-      <FileInfo audioInfo={audioInfo} />
-
       {/* Error */}
       <ErrorDisplay message={error} traceback={errorTrace} />
+
+      {/* Results + file info — above plots */}
+      <StatsPanel
+        result={activeResult}
+        processing={processing}
+        duration={activeResult?.metrics?.duration ?? audioInfo?.duration}
+        audioInfo={audioInfo}
+      />
 
       {/* Deviation waveform — always shows full-file data */}
       <Waveform
@@ -270,13 +274,6 @@ function App() {
         spectrumData={activeResult?.plots?.spectrum}
         onHarmonicSelect={handleHarmonicSelect}
         processing={processing}
-      />
-
-      {/* Results — shows active result (region or full-file) */}
-      <StatsPanel
-        result={activeResult}
-        processing={processing}
-        duration={activeResult?.metrics?.duration ?? audioInfo?.duration}
       />
     </Layout>
   );

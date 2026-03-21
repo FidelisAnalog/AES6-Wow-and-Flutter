@@ -1,5 +1,5 @@
-import { Paper, Typography, Box, Skeleton } from '@mui/material';
-import MetricRow from './MetricRow.jsx';
+import { Paper, Typography, Box, Skeleton, Alert, Tooltip } from '@mui/material';
+import { InfoOutlined } from '@mui/icons-material';
 import { MIN_DRIFT_SECONDS } from '../../config/constants.js';
 
 const UNWTD_TIP = 'DIN/IEC unweighted: full bandwidth (0.5–200 Hz), no perceptual weighting applied.';
@@ -9,101 +9,106 @@ function fmt(val, decimals = 4) {
   return val != null ? val.toFixed(decimals) : '—';
 }
 
-/**
- * AES6-2008 metrics display panel.
- * @param {{ result: object|null, processing: boolean, duration: number|null }} props
- */
-export default function StatsPanel({ result, processing, duration }) {
-  if (!result && !processing) return null;
+function Metric({ label, value, tip }) {
+  return (
+    <Box sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.5, mr: 2.5 }}>
+      <Typography variant="body2" color="text.secondary" component="span">
+        {label}
+        {tip && (
+          <Tooltip title={tip} arrow placement="top">
+            <InfoOutlined sx={{ fontSize: 11, ml: 0.3, verticalAlign: 'middle', cursor: 'help' }} />
+          </Tooltip>
+        )}
+      </Typography>
+      <Typography variant="body2" component="span" sx={{ fontFamily: 'monospace' }}>
+        {value}
+      </Typography>
+    </Box>
+  );
+}
 
-  // No result yet (first load) — show skeleton placeholder
+/**
+ * Combined file info + metrics card — horizontal layout matching wf_analyze plot header.
+ */
+export default function StatsPanel({ result, processing, duration, audioInfo }) {
+  if (!audioInfo && !result && !processing) return null;
+
+  // No result yet (first load) — show skeleton
   if (!result && processing) {
     return (
-      <Paper sx={{ p: 2 }}>
-        <Typography variant="subtitle2" gutterBottom>AES6-2008 Metrics</Typography>
-        <Skeleton variant="text" width="60%" />
+      <Paper sx={{ p: 1.5, px: 2 }}>
+        {audioInfo && <FileHeader audioInfo={audioInfo} />}
         <Skeleton variant="text" width="80%" />
-        <Skeleton variant="text" width="70%" />
+        <Skeleton variant="text" width="60%" />
       </Paper>
     );
   }
 
-  const { metrics, plots } = result;
+  // File loaded but no result yet (shouldn't happen, but guard)
+  if (!result) {
+    return audioInfo ? (
+      <Paper sx={{ p: 1.5, px: 2 }}>
+        <FileHeader audioInfo={audioInfo} />
+      </Paper>
+    ) : null;
+  }
+
+  const { metrics } = result;
   const { standard, non_standard } = metrics;
   const showDrift = duration != null && duration >= MIN_DRIFT_SECONDS;
 
   return (
-    <Paper sx={{ p: 2, opacity: processing ? 0.5 : 1, transition: 'opacity 0.2s' }}>
-      <Typography variant="subtitle2" gutterBottom>
-        AES6-2008 Metrics
-      </Typography>
+    <Paper sx={{ p: 1.5, px: 2, opacity: processing ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+      {/* Line 1: File info */}
+      {audioInfo && <FileHeader audioInfo={audioInfo} />}
 
-      {/* Carrier */}
-      <MetricRow
-        label="Carrier"
-        value={`${fmt(metrics.carrier_freq, 1)} Hz  |  Mean: ${fmt(metrics.f_mean)} Hz`}
-      />
-
-      {/* DIN/IEC Unwtd */}
-      <Box sx={{ mt: 1.5 }}>
-        <Typography variant="caption" color="text.secondary">
-          DIN/IEC Unwtd
-        </Typography>
-        <MetricRow
-          label="Peak (2σ)"
-          value={`±${fmt(standard.unweighted_peak.value)}%`}
-          tooltip={UNWTD_TIP}
-        />
-        <MetricRow label="RMS" value={`${fmt(standard.unweighted_rms.value)}%`} />
+      {/* Line 2: Mean + Drift */}
+      <Box sx={{ mt: 0.5 }}>
+        <Metric label="Mean:" value={`${fmt(metrics.f_mean, 3)} Hz`} />
+        {showDrift && <Metric label="Drift:" value={`${fmt(non_standard.drift_rms.value)}%`} />}
       </Box>
 
-      {/* DIN/IEC Wtd */}
-      <Box sx={{ mt: 1.5 }}>
-        <Typography variant="caption" color="text.secondary">
-          DIN/IEC Wtd
-        </Typography>
-        <MetricRow
-          label="Peak (2σ)"
-          value={`±${fmt(standard.weighted_peak.value)}%`}
-          tooltip={WTD_TIP}
-        />
-        <MetricRow label="RMS (JIS)" value={`${fmt(standard.weighted_rms.value)}%`} />
-        <MetricRow label="Wow" value={`${fmt(standard.weighted_wow_rms.value)}%`} />
-        <MetricRow label="Flutter" value={`${fmt(standard.weighted_flutter_rms.value)}%`} />
+      {/* Line 3: Unweighted */}
+      <Box sx={{ mt: 0.25 }}>
+        <Metric label="Unwtd Wow:" value={`${fmt(non_standard.unweighted_wow_rms.value)}%`} />
+        <Metric label="Unwtd Flutter:" value={`${fmt(non_standard.unweighted_flutter_rms.value)}%`} />
+        <Metric label="DIN/IEC Unwtd:" value={`Peak(2σ) ±${fmt(standard.unweighted_peak.value)}%`} tip={UNWTD_TIP} />
+        <Metric label="RMS" value={`${fmt(standard.unweighted_rms.value)}%`} />
       </Box>
 
-      {/* Unweighted Wow/Flutter (non-standard) */}
-      <Box sx={{ mt: 1.5 }}>
-        <Typography variant="caption" color="text.secondary">
-          Unwtd Wow/Flutter (non-standard)
-        </Typography>
-        <MetricRow label="Wow RMS" value={`${fmt(non_standard.unweighted_wow_rms.value)}%`} />
-        <MetricRow label="Flutter RMS" value={`${fmt(non_standard.unweighted_flutter_rms.value)}%`} />
-      </Box>
-
-      {/* Drift */}
-      <Box sx={{ mt: 1.5 }}>
-        <Typography variant="caption" color="text.secondary">
-          Drift (non-standard)
-        </Typography>
-        {showDrift ? (
-          <MetricRow label="Drift" value={`${fmt(non_standard.drift_rms.value)}%`} />
-        ) : (
-          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', fontSize: '0.8rem' }}>
-            Requires {MIN_DRIFT_SECONDS}s minimum signal for drift measurement
-          </Typography>
-        )}
-      </Box>
-
-      {/* Signal info */}
-      <Box sx={{ mt: 1.5 }}>
-        <Typography variant="caption" color="text.secondary">
-          Signal
-        </Typography>
-        <MetricRow label="Duration" value={`${fmt(metrics.duration, 2)}s`} />
-        <MetricRow label="Deviation pts" value={`${plots?.dev_time?.t?.length ?? '—'}`} />
-        <MetricRow label="Peaks detected" value={`${plots?.spectrum?.peaks?.length ?? '—'}`} />
+      {/* Line 4: Weighted */}
+      <Box sx={{ mt: 0.25 }}>
+        <Metric label="DIN/IEC Wtd:" value={`Peak(2σ) ±${fmt(standard.weighted_peak.value)}%`} tip={WTD_TIP} />
+        <Metric label="RMS" value={`${fmt(standard.weighted_rms.value)}% (JIS)`} />
+        <Metric label="Wow" value={`${fmt(standard.weighted_wow_rms.value)}%`} />
+        <Metric label="Flutter" value={`${fmt(standard.weighted_flutter_rms.value)}%`} />
       </Box>
     </Paper>
+  );
+}
+
+function FileHeader({ audioInfo }) {
+  const {
+    fileName, sampleRate, channels, duration,
+    wasTruncated, wasDownsampled, originalDuration, originalSampleRate,
+  } = audioInfo;
+
+  return (
+    <>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap' }}>
+        <Typography variant="body2" component="span" sx={{ fontWeight: 600 }}>
+          {fileName}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" component="span" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+          {sampleRate} Hz | {channels}ch | {duration.toFixed(2)}s
+          {wasDownsampled && ` (from ${originalSampleRate} Hz)`}
+        </Typography>
+      </Box>
+      {wasTruncated && (
+        <Alert severity="info" sx={{ mt: 0.5, py: 0 }}>
+          Truncated to {duration.toFixed(0)}s (original: {originalDuration.toFixed(1)}s)
+        </Alert>
+      )}
+    </>
   );
 }
