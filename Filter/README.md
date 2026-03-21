@@ -226,7 +226,7 @@ Reconstructing the `process_DIN` filter from `filters.c` (fs=6300 Hz) revealed i
 To reproduce these results:
 
 1. Run `aes6_wurcer_optimizer.py` — produces all 5 topology results
-2. Run `din_vs_aes6.py` — reconstructs DIN filter and runs HP+LP cascade sweep
+2. Run `din_vs_aes6.py` — reconstructs the `filters.c` filter and runs HP+LP cascade sweep
 3. The winning filter coefficients are deterministic given the grid search ranges
 
 The optimizer scripts are self-contained (only need numpy, scipy, matplotlib) and include compliance checking, phase verification, and comparison plots.
