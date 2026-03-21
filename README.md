@@ -42,7 +42,7 @@ The tool accepts two input types, distinguished by file extension:
 | `--polar-revs` | 2 | Number of revolutions in polar plot |
 | `--lissajous-freq` | None | One or more frequencies (Hz) for AM/FM Lissajous plots. Single value gives a single plot; multiple values give a 2-row panel (same layout as `--lissajous-peaks`). Audio only |
 | `--lissajous-peaks` | off | Generate AM/FM Lissajous panel for all detected spectrum peaks (top 12, >8% of max amplitude). Audio only |
-| `--plot-am` | off | Overlay AM envelope spectrum on the FM spectrum plot. Audio only |
+
 
 ### Output
 
@@ -156,7 +156,7 @@ Performance: 1.013 dB PTP error, 17/17 Table 1 points within tolerance, minimum 
 
 Causal filtering (`lfilter`) is deliberate — it matches analog meter behavior. `lfilter_zi` eliminates the startup transient that would otherwise require discarding 3+ seconds of signal.
 
-For the full design derivation, pole/zero optimization methodology, and tolerance analysis, see [`Filter/README.md`](Filter/README.md).
+For the full design derivation, pole/zero optimization methodology, and tolerance analysis, see [`Filter/`](Filter/).
 
 ### AM/FM coupling analysis (audio only)
 
