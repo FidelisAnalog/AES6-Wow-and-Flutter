@@ -203,8 +203,14 @@ function App() {
     try {
       const result = getPlotData('harmonic_extract', { freqs: selectedFreqs });
       if (result?.components) {
+        // Build time array for overlay — offset to region position in full-file waveform
+        const regionStart = lastMeasuredRegion ? lastMeasuredRegion[0] : 0;
+        const activeSpec = (regionResult ?? fullResult)?.plots?.dev_time;
+        const overlayT = activeSpec?.t?.map(t => t + regionStart);
+
         const overlays = result.components.map((data, i) => ({
           data,
+          tUniform: overlayT,
           color: getPeakColor(selectedIndices[i]),
         }));
         setHarmonicOverlays(overlays);
@@ -213,7 +219,7 @@ function App() {
       console.warn('[harmonic_extract] failed:', e);
       setHarmonicOverlays([]);
     }
-  }, []);
+  }, [lastMeasuredRegion, regionResult, fullResult]);
 
   const hasFile = !!audioInfo;
 

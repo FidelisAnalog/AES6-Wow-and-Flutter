@@ -201,8 +201,19 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
 
   useEffect(() => {
     if (!onHarmonicSelectRef.current) return;
-    const selectedFreqs = selectedPeakIndices.map(i => peaksRef.current[i]?.freq).filter(Boolean);
-    onHarmonicSelectRef.current(selectedFreqs, selectedPeakIndices);
+    // Double-rAF: first rAF queues after layout, second fires after paint
+    const rafId = requestAnimationFrame(() => {
+      const rafId2 = requestAnimationFrame(() => {
+        const selectedFreqs = selectedPeakIndices.map(i => peaksRef.current[i]?.freq).filter(Boolean);
+        onHarmonicSelectRef.current(selectedFreqs, selectedPeakIndices);
+      });
+      cleanupRef.current = rafId2;
+    });
+    const cleanupRef = { current: null };
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (cleanupRef.current) cancelAnimationFrame(cleanupRef.current);
+    };
   }, [selectedPeakIndices]);
 
   const isZoomed = isViewZoomed(viewFMin, viewFMax, dataFMin, dataFMax);

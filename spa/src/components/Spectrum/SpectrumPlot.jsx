@@ -62,21 +62,6 @@ export default function SpectrumPlot({
     // Grid — horizontal amplitude lines
     drawGrid(ctx, width, height, ampMax, ampToY, sp.grid);
 
-    // Coupling threshold line (horizontal dashed)
-    if (couplingThreshold != null && couplingThreshold > 0) {
-      const y = ampToY(couplingThreshold);
-      if (y >= 0 && y <= height) {
-        ctx.strokeStyle = sp.couplingThreshold;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([6, 4]);
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-    }
-
     // Spectrum trace
     ctx.strokeStyle = sp.trace;
     ctx.lineWidth = 1.5;
