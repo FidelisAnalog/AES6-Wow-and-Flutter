@@ -51,3 +51,4 @@ jobs:
           publish_dir: spa/dist
           destination_dir: ${{ steps.path.outputs.dest }}
           keep_files: true
+          cname: myhi.fi
