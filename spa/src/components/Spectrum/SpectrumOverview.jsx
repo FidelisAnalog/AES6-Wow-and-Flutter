@@ -31,6 +31,7 @@ const SpectrumOverview = React.memo(function SpectrumOverview({
   dataFMax,
   viewFMin,
   viewFMax,
+  logAmpScale = false,
   onViewChange,
   onGestureStart,
   onGestureEnd,
@@ -102,7 +103,7 @@ const SpectrumOverview = React.memo(function SpectrumOverview({
   useEffect(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(draw);
-  }, [freqs, amplitude, viewFMin, viewFMax, dataFMin, dataFMax, theme.palette.mode, containerWidth]);
+  }, [freqs, amplitude, viewFMin, viewFMax, dataFMin, dataFMax, logAmpScale, theme.palette.mode, containerWidth]);
 
   function draw() {
     const canvas = canvasRef.current;
@@ -126,6 +127,22 @@ const SpectrumOverview = React.memo(function SpectrumOverview({
     const logRange = dataLogMax - dataLogMin;
     if (logRange <= 0 || ampMax <= 0) { ctx.restore(); return; }
 
+    // Build Y transform matching main plot's scale
+    let ampToY;
+    if (logAmpScale) {
+      const LOG_DR = 60;
+      const ampFloor = ampMax * Math.pow(10, -LOG_DR / 20);
+      const logAmpMax = Math.log10(ampMax * Math.pow(10, 6 / 20)); // match 6dB headroom
+      const logAmpMin = Math.log10(ampFloor);
+      const logAmpRange = logAmpMax - logAmpMin;
+      ampToY = (a) => {
+        const clamped = Math.max(a, ampFloor);
+        return ((logAmpMax - Math.log10(clamped)) / logAmpRange) * cssH;
+      };
+    } else {
+      ampToY = (a) => ((ampMax - a) / ampMax) * cssH;
+    }
+
     // Grey base trace
     ctx.strokeStyle = sp.overviewFill;
     ctx.lineWidth = 1;
@@ -134,7 +151,7 @@ const SpectrumOverview = React.memo(function SpectrumOverview({
     for (let i = 0; i < freqs.length; i++) {
       if (freqs[i] <= 0) continue;
       const x = ((logF(freqs[i]) - dataLogMin) / logRange) * cssW;
-      const y = ((ampMax - amplitude[i]) / ampMax) * cssH;
+      const y = ampToY(amplitude[i]);
       if (i === 0 || freqs[i - 1] <= 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -155,7 +172,7 @@ const SpectrumOverview = React.memo(function SpectrumOverview({
       for (let i = 0; i < freqs.length; i++) {
         if (freqs[i] <= 0) continue;
         const x = ((logF(freqs[i]) - dataLogMin) / logRange) * cssW;
-        const y = ((ampMax - amplitude[i]) / ampMax) * cssH;
+        const y = ampToY(amplitude[i]);
         if (i === 0 || freqs[i - 1] <= 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }

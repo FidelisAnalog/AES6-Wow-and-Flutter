@@ -23,6 +23,7 @@ export default function SpectrumPlot({
   height,
   logAmpScale = false,
   onTogglePeak,
+  onResetZoom,
 }) {
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
@@ -156,10 +157,16 @@ export default function SpectrumPlot({
     e.currentTarget.style.cursor = closest != null ? 'pointer' : 'default';
   };
 
+  const handleDblClick = (e) => {
+    e.stopPropagation();
+    onResetZoom?.();
+  };
+
   return (
     <canvas
       ref={canvasRef}
       onClick={handleClick}
+      onDoubleClick={handleDblClick}
       onMouseMove={handleMouseMove}
       style={{
         width: width || '100%',

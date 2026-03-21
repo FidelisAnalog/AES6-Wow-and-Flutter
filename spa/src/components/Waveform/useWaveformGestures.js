@@ -474,7 +474,7 @@ export default function useWaveformGestures({
       el.removeEventListener('pointercancel', handlePointerUp);
       el.removeEventListener('dblclick', handleDblClick);
     };
-  }, [setUserView, resetZoom, scrollRef, gestureRef, hasData]);
+  }, [setUserView, resetZoom, scrollRef, gestureRef, hasData, containerWidth]);
 
   // --- Keyboard shortcuts ---
 

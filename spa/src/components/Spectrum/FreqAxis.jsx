@@ -79,7 +79,7 @@ export default React.memo(function FreqAxis({ viewFMin, viewFMax, width }) {
 
   return (
     <svg width={width} height={AXIS_HEIGHT} style={{ display: 'block', position: 'sticky', left: 0 }}>
-      <rect x={0} y={0} width={width} height={AXIS_HEIGHT} fill={theme.palette.background.paper} />
+      <rect x={0} y={0} width={width} height={AXIS_HEIGHT} fill={theme.palette.waveform.axisBackground} />
       {ticks.map((tick, i) => (
         <g key={i}>
           <line

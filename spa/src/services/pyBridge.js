@@ -50,17 +50,21 @@ async function _init() {
     _onStatus?.('Loading Python runtime...');
 
     // Load Pyodide via script tag (dynamic import doesn't work through Vite)
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error('Failed to load Pyodide script'));
-      document.head.appendChild(script);
-    });
+    if (!globalThis.loadPyodide) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load Pyodide script'));
+        document.head.appendChild(script);
+      });
+    }
     _pyodide = await globalThis.loadPyodide();
 
-    _onStatus?.('Installing numpy + scipy...');
-    await _pyodide.loadPackage(['numpy', 'scipy']);
+    _onStatus?.('Installing numpy...');
+    await _pyodide.loadPackage(['numpy']);
+    _onStatus?.('Installing scipy...');
+    await _pyodide.loadPackage(['scipy']);
 
     _onStatus?.('Loading analyzer module...');
     const resp = await fetch('/python/wf_core.py');

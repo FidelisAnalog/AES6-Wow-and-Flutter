@@ -23,7 +23,7 @@ import useSpectrumData, { getAmpScale } from './useSpectrumData.js';
 import useSpectrumNavigation from './useSpectrumNavigation.js';
 import { SPECTRUM_MIN_FREQ } from '../../config/constants.js';
 
-const PLOT_HEIGHT = 200;
+const PLOT_HEIGHT = 240;
 const TOTAL_HEIGHT = PLOT_HEIGHT + AXIS_HEIGHT;
 const AXIS_WIDTH = 52;
 const EPSILON = 0.001;
@@ -70,14 +70,23 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
   widthRef.current = containerWidth;
 
   // Reset view when new data arrives
+  // Reset view only on new file (spectrumData goes null then repopulates).
+  // Re-measure keeps viewport and selection.
+  const hadDataRef = useRef(false);
   useEffect(() => {
-    if (freqs?.length) {
+    if (!freqs?.length) {
+      hadDataRef.current = false;
+      return;
+    }
+    if (!hadDataRef.current) {
+      // First data after null — new file
       const fMin = Math.max(freqs[0], SPECTRUM_MIN_FREQ);
       const fMax = freqs[freqs.length - 1];
       setViewFMin(fMin);
       setViewFMax(fMax);
       setSelectedPeakIndices([]);
     }
+    hadDataRef.current = true;
   }, [freqs]);
 
   const hasData = !!(freqs && amplitude);
@@ -231,10 +240,6 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
 
   return (
     <Paper sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
-      <Typography variant="subtitle2" gutterBottom sx={{ ml: `${AXIS_WIDTH}px` }}>
-        FM Deviation Spectrum
-      </Typography>
-
       {/* Overview bar */}
       <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <SpectrumOverview
@@ -244,6 +249,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
           dataFMax={dataFMax}
           viewFMin={viewFMin}
           viewFMax={viewFMax}
+          logAmpScale={logAmpScale}
           onViewChange={handleViewChange}
           onGestureStart={handleOverviewGestureStart}
           onGestureEnd={handleOverviewGestureEnd}
@@ -306,6 +312,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
                   height={PLOT_HEIGHT}
                   logAmpScale={logAmpScale}
                   onTogglePeak={handleTogglePeak}
+                  onResetZoom={resetZoom}
                 />
 
                 <FreqAxis

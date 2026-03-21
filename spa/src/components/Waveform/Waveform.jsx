@@ -28,7 +28,7 @@ import useWaveformData, { getYScale } from './useWaveformData.js';
 import useWaveformGestures from './useWaveformGestures.js';
 import { MIN_MEASUREMENT_SECONDS } from '../../config/constants.js';
 
-const MAIN_HEIGHT = 280;
+const MAIN_HEIGHT = 240;
 const TOTAL_HEIGHT = MAIN_HEIGHT + TIMELINE_HEIGHT;
 const AXIS_WIDTH = 52;
 const EPSILON = 0.001;
