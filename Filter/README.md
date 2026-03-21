@@ -12,11 +12,11 @@ The challenge: Table 1 has **asymmetric slopes** — roughly 18 dB/oct below the
 
 ## 2. What We Tried (and Why It Failed)
 
-### Standard Bessel bandpass (as used in DIN 45507)
+### Standard Bessel bandpass (filters.c reference)
 
-The `filters.c` reference implementation uses a 2nd-order Bessel bandpass (BpBe2) at 1.2–15 Hz for DIN weighting. We reconstructed this filter from its biquad coefficients and tested it against AES6 Table 1.
+The `filters.c` reference implementation uses a 2nd-order Bessel bandpass (BpBe2) at 1.2–15 Hz. We reconstructed this filter from its biquad coefficients and tested it against AES6 Table 1.
 
-**Result: 23.4 dB PTP error.** The DIN filter rolls off far too steeply above 10 Hz because AES6 and DIN have different weighting curves. The DIN filter was designed for a different standard — the topology is a clue but the corner frequencies are not transferable.
+**Result: 23.4 dB PTP error.** This implementation rolls off far too steeply above 10 Hz. Note: the DIN 45507, IEC 386, and AES6-2008 weighting curves are all the same specification — `filters.c` is simply a poor implementation of that shared spec, not evidence of a different standard. The topology (cascaded biquads) is a clue, but the specific pole/zero placement in that implementation is wrong.
 
 ### Optimized Bessel HP+LP cascades
 
@@ -26,7 +26,7 @@ We tested every combination of Bessel HP(n) + Bessel LP(m) with n=1–3, m=1–2
 
 ### Key lesson: don't force a standard filter topology
 
-The DIN implementation is informative as a clue to the general approach (cascaded HP + LP sections implemented as biquads), but the actual AES6 weighting curve requires a different topology than any standard textbook filter.
+The `filters.c` implementation is informative as a clue to the general approach (cascaded HP + LP sections implemented as biquads), but the weighting curve requires a different topology than any standard textbook filter.
 
 ## 3. What Worked: Wurcer's Methodology
 
@@ -200,7 +200,7 @@ Key observations:
 - **The finite zero helps.** Topology B (with Wurcer's "bring infinity in" zero) beats Topology A (without it) by ~50 mdB.
 - **More parameters ≠ better.** Topology C (7 params) got stuck in a local minimum worse than Topology B (5 params). Wurcer warns about this: "The optimization problem has no closed form solution and is further complicated by being ill-conditioned, which means there are numerous local minima."
 
-## 9. The DIN Filter — What It Taught Us
+## 9. The filters.c Reference — What It Taught Us
 
 Reconstructing the `process_DIN` filter from `filters.c` (fs=6300 Hz) revealed its actual structure:
 
@@ -208,7 +208,7 @@ Reconstructing the `process_DIN` filter from `filters.c` (fs=6300 Hz) revealed i
 - Pole analysis: conjugate pairs at 0.08 Hz, 0.58 Hz, 9.35 Hz, and 129 Hz
 - This is NOT a simple 2nd-order Bessel bandpass — it's a 4th-order system
 
-The DIN filter fits AES6 Table 1 poorly at high frequencies (22+ dB error above 40 Hz) because the DIN and AES6 weighting curves diverge significantly above the passband. But its general topology (cascaded HP + LP biquad sections with free zero/pole placement) is the right approach — we just need different parameters optimized for AES6.
+**Important:** DIN 45507, IEC 386, and AES6-2008 all define the same weighting curve. The `filters.c` implementation fits AES6 Table 1 poorly (22+ dB error above 40 Hz) not because the standards differ, but because it is a botched implementation of the shared spec. Its general topology (cascaded HP + LP biquad sections with free zero/pole placement) is the right approach — the implementation just has wrong parameters.
 
 ## 10. Reproducibility
 
@@ -224,6 +224,6 @@ The optimizer scripts are self-contained (only need numpy, scipy, matplotlib) an
 
 - **AES6-2008**: AES standard method for measurement of weighted peak flutter of sound recording and reproducing equipment
 - **Wurcer, Scott**: "Record replay RIAA correction in the digital domain," Linear Audio, Volume 10. Core methodology: brute grid + fmin optimization of z-domain pole/zero locations using PTP error metric.
-- **DIN 45507**: German standard for flutter measurement (predecessor to IEC 386). Filter described as "BpBe2/1.2-15" (Bandpass Bessel order 2, −3 dB at 1.2 and 15 Hz).
-- **filters.c** (wow-and-flutter-analyzer): Reference C implementation with DIN weighting filter as 4 biquad sections at fs=6300 Hz.
+- **DIN 45507 / IEC 386**: German and international standards for flutter measurement. The weighting curve is identical to AES6-2008 Table 1.
+- **filters.c** (wow-and-flutter-analyzer): Reference C implementation claiming DIN compliance, implemented as 4 biquad sections at fs=6300 Hz. This implementation is non-compliant — it fails the shared DIN/IEC/AES6 weighting spec by 22+ dB above 40 Hz.
 - **aes6-wow-and-flutter-meter**: Reference Python implementation with HPF3 + LPF1 Butterworth — functional but not optimized (5.4 dB PTP).
