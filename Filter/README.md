@@ -8,7 +8,18 @@
 
 AES6-2008 Table 1 defines 17 frequency/weighting spec points (0.1–200 Hz) for the wow & flutter weighting filter. The filter must be normalized to 0 dB at 4 Hz. Tolerances range from ±2 dB in the passband to +10/−4 dB at the low-frequency extremes.
 
-The challenge: Table 1 has **asymmetric slopes** — roughly 18 dB/oct below the passband but only ~6 dB/oct above. No standard equal-order bandpass filter (Bessel, Butterworth, or otherwise) can match this shape because equal-order bandpasses have symmetric rolloff rates.
+The AES6 abstract describes the weighting as "approximately 6 dB/oct drop above and below 4 Hz, with an additional drop below 0.5 Hz." The actual Table 1 slopes confirm this:
+
+| Region | Slope (dB/oct) | Character |
+|--------|---------------|-----------|
+| 100–200 Hz | ~5.7 | Approaching 6 dB/oct (1st-order LP) |
+| 20–63 Hz | ~4.5–5.8 | Transitioning toward 6 dB/oct |
+| 4–10 Hz | ~1.4–1.8 | Near peak, very shallow |
+| 0.6–1 Hz | ~5.6–7.0 | ~6 dB/oct (1st-order HP) |
+| 0.3–0.5 Hz | ~10–14 | Steepening — "additional drop" |
+| 0.1–0.2 Hz | ~17 | Approaching 18 dB/oct (3rd-order HP) |
+
+The challenge: the slopes are **asymmetric** — approximately 6 dB/oct above (1st-order LP, the entire upper side), and 6 dB/oct from ~0.5–4 Hz steepening to ~18 dB/oct below 0.5 Hz (the "additional drop" from 3 zeros at DC). No standard equal-order bandpass filter (Bessel, Butterworth, or otherwise) can match this shape because equal-order bandpasses have symmetric rolloff rates.
 
 ## 2. What We Tried (and Why It Failed)
 
@@ -42,7 +53,7 @@ In a standard bandpass, the lowpass section's zeros sit at infinity (Nyquist in 
 
 The physical structure of the AES6 curve tells us:
 
-- **Below passband (~18 dB/oct rise):** 3 zeros at DC — this is a 3rd-order highpass characteristic
+- **Below passband:** ~6 dB/oct from 0.5–4 Hz steepening to ~18 dB/oct below 0.5 Hz → 3 zeros at DC (3rd-order HP asymptote)
 - **Above passband (~6 dB/oct fall):** Net order = zeros − poles = −1, meaning we need at least 4 poles for 3 DC zeros
 - **The missing piece:** Instead of a 4th zero at infinity (standard 4th-order bandpass), bring it to a finite frequency and let the optimizer place it
 
@@ -196,7 +207,7 @@ SRC is applied to the **deviation signal** (post zero-crossing demodulation), no
 | 3 DC zeros + 2 finite zeros + 5 poles | 7 | 1.44 | YES (local min) |
 
 Key observations:
-- **3 DC zeros are essential.** 2 DC zeros (12 dB/oct) cannot match the 18 dB/oct low-frequency slope regardless of optimization.
+- **3 DC zeros are essential.** 2 DC zeros (12 dB/oct asymptote) cannot match the ~18 dB/oct asymptotic slope below 0.5 Hz regardless of optimization.
 - **The finite zero helps.** Topology B (with Wurcer's "bring infinity in" zero) beats Topology A (without it) by ~50 mdB.
 - **More parameters ≠ better.** Topology C (7 params) got stuck in a local minimum worse than Topology B (5 params). Wurcer warns about this: "The optimization problem has no closed form solution and is further complicated by being ill-conditioned, which means there are numerous local minima."
 
