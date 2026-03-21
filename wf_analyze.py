@@ -373,31 +373,79 @@ def plot_results(r, sec_per_rev=1.8, n_revs=4,
 
 # ========================= LISSAJOUS PLOT =========================
 
-def plot_lissajous(r, freq):
-    """Plot AM/FM Lissajous at a single frequency. Audio only."""
-    liss = wf_core.getPlotData('lissajous', {'freq': freq})
-    am = np.array(liss['am_norm'])
-    fm = np.array(liss['fm_norm'])
+def plot_lissajous(r, freqs):
+    """Plot AM/FM Lissajous for one or more frequencies. Audio only.
 
-    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-    ax.plot(am, fm, linewidth=0.5, color='#2266aa', alpha=0.6)
-    ax.set_xlim(-1.5, 1.5)
-    ax.set_ylim(-1.5, 1.5)
-    ax.set_aspect('equal')
-    ax.axhline(0, color='gray', linewidth=0.3)
-    ax.axvline(0, color='gray', linewidth=0.3)
-    ax.set_xlabel('AM (norm)')
-    ax.set_ylabel('FM (norm)')
+    Single freq: 5×5 plot (backward compatible).
+    Multiple freqs: 1-row × N-col panel.
+    """
+    if not isinstance(freqs, (list, tuple)):
+        freqs = [freqs]
 
-    sig_text = ' ★ significant' if liss['significant'] else ''
-    ax.set_title(f'AM/FM Lissajous — {r["basename"]}\n'
-                 f'{freq:.2f} Hz   R={liss["R"]:.3f}  '
-                 f'φ={liss["phase"]:.0f}°  '
-                 f'str={liss["strength"]:.5f}{sig_text}',
-                 fontsize=9)
-    ax.grid(True, alpha=0.3)
+    n = len(freqs)
 
-    plt.tight_layout()
+    if n == 1:
+        # Single frequency — original layout
+        freq = freqs[0]
+        liss = wf_core.getPlotData('lissajous', {'freq': freq})
+        am = np.array(liss['am_norm'])
+        fm = np.array(liss['fm_norm'])
+
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+        ax.plot(am, fm, linewidth=0.5, color='#2266aa', alpha=0.6)
+        ax.set_xlim(-1.5, 1.5)
+        ax.set_ylim(-1.5, 1.5)
+        ax.set_aspect('equal')
+        ax.axhline(0, color='gray', linewidth=0.3)
+        ax.axvline(0, color='gray', linewidth=0.3)
+        ax.set_xlabel('AM (norm)')
+        ax.set_ylabel('FM (norm)')
+
+        sig_text = ' ★ significant' if liss['significant'] else ''
+        ax.set_title(f'AM/FM Lissajous — {r["basename"]}\n'
+                     f'{freq:.2f} Hz   R={liss["R"]:.3f}  '
+                     f'φ={liss["phase"]:.0f}°  '
+                     f'str={liss["strength"]:.5f}{sig_text}',
+                     fontsize=9)
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+    else:
+        # Multi-frequency panel: 1 row × n cols
+        fig, axes = plt.subplots(1, n, figsize=(4 * n, 4), squeeze=False)
+        fig.suptitle(f'AM/FM Lissajous — {r["basename"]}',
+                     fontsize=11, y=1.02)
+
+        for i, freq in enumerate(freqs):
+            ax = axes[0][i]
+            try:
+                liss = wf_core.getPlotData('lissajous', {'freq': freq})
+                am = np.array(liss['am_norm'])
+                fm = np.array(liss['fm_norm'])
+
+                ax.plot(am, fm, linewidth=0.5, color='#2266aa', alpha=0.6)
+                ax.set_xlim(-1.5, 1.5)
+                ax.set_ylim(-1.5, 1.5)
+                ax.set_aspect('equal')
+                ax.axhline(0, color='gray', linewidth=0.3)
+                ax.axvline(0, color='gray', linewidth=0.3)
+                ax.set_xlabel('AM', fontsize=7)
+                ax.set_ylabel('FM', fontsize=7)
+                ax.tick_params(labelsize=6)
+
+                sig_text = ' *' if liss['significant'] else ''
+                ax.set_title(f'{freq:.2f} Hz  R={liss["R"]:.3f}  '
+                             f'φ={liss["phase"]:.0f}°{sig_text}\n'
+                             f'str={liss["strength"]:.5f}',
+                             fontsize=7)
+                ax.grid(True, alpha=0.3)
+            except Exception as e:
+                ax.text(0.5, 0.5, f'{freq:.2f} Hz\nError',
+                        ha='center', va='center', transform=ax.transAxes,
+                        fontsize=8)
+                ax.set_title(f'{freq:.2f} Hz', fontsize=7)
+
+        plt.tight_layout()
+
     out_name = os.path.splitext(r['basename'])[0] + '_lissajous.png'
     plt.savefig(out_name, dpi=150, bbox_inches='tight')
     print(f"Saved: {out_name}")
@@ -493,8 +541,8 @@ if __name__ == '__main__':
                         help='Motor-to-platter speed ratio (default: 1.0 = direct drive)')
     parser.add_argument('--polar-revs', type=int, default=2,
                         help='Number of revolutions in polar plot (default: 2)')
-    parser.add_argument('--lissajous-freq', type=float, default=None,
-                        help='Frequency (Hz) for AM/FM Lissajous plot (audio only)')
+    parser.add_argument('--lissajous-freq', type=float, nargs='+', default=None,
+                        help='Frequency/ies (Hz) for AM/FM Lissajous plot (audio only)')
     parser.add_argument('--lissajous-peaks', action='store_true',
                         help='AM/FM Lissajous panel for all detected peaks (audio only)')
     args = parser.parse_args()
