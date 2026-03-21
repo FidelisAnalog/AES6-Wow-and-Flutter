@@ -67,7 +67,8 @@ async function _init() {
     await _pyodide.loadPackage(['scipy']);
 
     _onStatus?.('Loading analyzer module...');
-    const resp = await fetch('/python/wf_core.py');
+    const base = import.meta.env.BASE_URL || '/';
+    const resp = await fetch(`${base}python/wf_core.py`);
     if (!resp.ok) {
       throw new Error(`Failed to fetch wf_core.py: ${resp.status} ${resp.statusText}`);
     }
