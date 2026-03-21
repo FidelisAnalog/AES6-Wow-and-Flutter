@@ -85,6 +85,18 @@ async function _init() {
     _pyodide.runPython(`
 import json as _json
 import numpy as _np
+
+def _np_default(obj):
+    if isinstance(obj, _np.bool_):
+        return bool(obj)
+    if isinstance(obj, _np.integer):
+        return int(obj)
+    if isinstance(obj, _np.floating):
+        return float(obj)
+    if isinstance(obj, _np.ndarray):
+        return obj.tolist()
+    raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
+
 set_status_callback(_js_status_callback)
 `);
 
@@ -240,7 +252,7 @@ _plot_error = None
 try:
     _params = _json.loads(_plot_params)
     _data = getPlotData(_plot_id, _params)
-    _plot_result = _json.dumps(_data, cls=_NumpyEncoder)
+    _plot_result = _json.dumps(_data, default=_np_default)
 except Exception as _e:
     _plot_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})
 finally:

@@ -6,6 +6,8 @@ import FileInfo from './components/FileInput/FileInfo.jsx';
 import ErrorDisplay from './components/ErrorDisplay.jsx';
 import StatsPanel from './components/StatsPanel/StatsPanel.jsx';
 import Waveform from './components/Waveform/Waveform.jsx';
+import Spectrum from './components/Spectrum/Spectrum.jsx';
+import { getPeakColor } from './components/Spectrum/peakColors.js';
 import { loadAudioFile, loadAudioFromUrl } from './services/audioLoader.js';
 import useQueryParams from './hooks/useQueryParams.js';
 import {
@@ -32,9 +34,14 @@ function App() {
   const [lastMeasuredRegion, setLastMeasuredRegion] = useState(null);
   const isRegionMeasureRef = useRef(false);
   const pendingRegionRef = useRef(null); // [start, end] for the in-flight region measure
+  const hasRegionResultRef = useRef(false);
 
   // Active result: region overrides full-file when present
   const activeResult = regionResult ?? fullResult;
+  hasRegionResultRef.current = !!regionResult;
+
+  // Harmonic overlays from spectrum peak selection
+  const [harmonicOverlays, setHarmonicOverlays] = useState([]);
 
   useEffect(() => {
     initPyBridge();
@@ -79,6 +86,7 @@ function App() {
     setFullResult(null);
     setRegionResult(null);
     setLastMeasuredRegion(null);
+    setHarmonicOverlays([]);
     isRegionMeasureRef.current = false;
 
     if (!file.name.match(/\.(wav|flac)$/i)) {
@@ -153,13 +161,24 @@ function App() {
   const handleMeasureRegion = useCallback((startSec, endSec) => {
     if (!audioRef.current) return;
 
-    // If handles are at full-file position, instant restore from cache
+    // If handles are at full-file position, restore full-file results
+    // but re-run analysis so Python re-stashes full-file data for on-demand plots
     const dur = audioInfo?.duration || 0;
     const isFullFile = startSec <= EPSILON && endSec >= dur - EPSILON;
-    if (isFullFile && fullResult) {
+    if (isFullFile) {
       setRegionResult(null);
       setLastMeasuredRegion(null);
-      setStatus('Analysis complete');
+      setHarmonicOverlays([]);
+      if (!hasRegionResultRef.current) {
+        // Already on full file — no re-analysis needed
+        return;
+      }
+      // Was on region — re-run full file to re-stash Python state
+      const { pcm, sampleRate } = audioRef.current;
+      isRegionMeasureRef.current = false;
+      setProcessing(true);
+      setStatus('Restoring full-file analysis...');
+      analyzeFull(pcm, sampleRate);
       return;
     }
 
@@ -174,6 +193,27 @@ function App() {
     setStatus('Re-measuring region...');
     analyzeFull(slice, sampleRate);
   }, [audioInfo, fullResult]);
+
+  // Harmonic overlay handler — called when spectrum peak selection changes
+  const handleHarmonicSelect = useCallback((selectedFreqs, selectedIndices) => {
+    if (!selectedFreqs.length) {
+      setHarmonicOverlays([]);
+      return;
+    }
+    try {
+      const result = getPlotData('harmonic_extract', { freqs: selectedFreqs });
+      if (result?.components) {
+        const overlays = result.components.map((data, i) => ({
+          data,
+          color: getPeakColor(selectedIndices[i]),
+        }));
+        setHarmonicOverlays(overlays);
+      }
+    } catch (e) {
+      console.warn('[harmonic_extract] failed:', e);
+      setHarmonicOverlays([]);
+    }
+  }, []);
 
   const hasFile = !!audioInfo;
 
@@ -208,10 +248,17 @@ function App() {
         deviationPct={fullResult?.plots?.dev_time?.deviation_pct}
         wfPeak2Sigma={fullResult?.metrics?.standard?.unweighted_peak?.value}
         totalDuration={audioInfo?.duration}
-        harmonicOverlays={[]}
+        harmonicOverlays={harmonicOverlays}
         processing={processing}
         onMeasureRegion={handleMeasureRegion}
         lastMeasuredRegion={lastMeasuredRegion}
+      />
+
+      {/* Spectrum plot with peak selection */}
+      <Spectrum
+        spectrumData={activeResult?.plots?.spectrum}
+        onHarmonicSelect={handleHarmonicSelect}
+        processing={processing}
       />
 
       {/* Results — shows active result (region or full-file) */}

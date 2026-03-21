@@ -39,6 +39,20 @@ export const darkPalette = {
     handle: '#42a5f5',
     handleHover: '#bbdefb',
   },
+  spectrum: {
+    trace: '#66bb6a',
+    couplingThreshold: '#ff9800',
+    background: '#1a1a1a',
+    grid: '#444444',
+    overviewBackground: '#1a1a1a',
+    overviewFill: '#546e7a',
+    overviewActiveFill: '#66bb6a',
+    viewportIndicator: 'rgba(102,187,106,0.25)',
+    handle: '#66bb6a',
+    handleHover: '#a5d6a7',
+    labelBackground: 'rgba(26,26,26,0.85)',
+    labelText: '#e0e0e0',
+  },
 };
 
 export const lightPalette = {
@@ -75,5 +89,19 @@ export const lightPalette = {
     viewportIndicator: 'rgba(25,118,210,0.2)',
     handle: '#1976d2',
     handleHover: '#1565c0',
+  },
+  spectrum: {
+    trace: '#388e3c',
+    couplingThreshold: '#ed6c02',
+    background: '#f5f5f5',
+    grid: '#bdbdbd',
+    overviewBackground: '#eceff1',
+    overviewFill: '#90a4ae',
+    overviewActiveFill: '#388e3c',
+    viewportIndicator: 'rgba(56,142,60,0.2)',
+    handle: '#388e3c',
+    handleHover: '#2e7d32',
+    labelBackground: 'rgba(255,255,255,0.9)',
+    labelText: '#212121',
   },
 };

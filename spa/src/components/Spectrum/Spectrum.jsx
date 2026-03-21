@@ -1,0 +1,349 @@
+/**
+ * Spectrum container — log-frequency spectrum plot with peak selection.
+ *
+ * Architecture mirrors Waveform.jsx:
+ * - Scrollable wrapper for native touch momentum
+ * - Canvas plot with position: sticky
+ * - Overview bar above, freq axis below
+ * - Gesture state machine prevents conflicting interactions
+ * - Fully responsive via ResizeObserver
+ */
+
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import { Box, Paper, IconButton, Tooltip, Typography, useTheme } from '@mui/material';
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import ZoomOutIcon from '@mui/icons-material/ZoomOut';
+import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
+import SpectrumPlot from './SpectrumPlot.jsx';
+import SpectrumOverview from './SpectrumOverview.jsx';
+import FreqAxis, { AXIS_HEIGHT } from './FreqAxis.jsx';
+import AmplitudeAxis from './AmplitudeAxis.jsx';
+import PeakChips from './PeakChips.jsx';
+import useSpectrumData, { getAmpScale } from './useSpectrumData.js';
+import useSpectrumNavigation from './useSpectrumNavigation.js';
+import { SPECTRUM_MIN_FREQ } from '../../config/constants.js';
+
+const PLOT_HEIGHT = 200;
+const TOTAL_HEIGHT = PLOT_HEIGHT + AXIS_HEIGHT;
+const AXIS_WIDTH = 52;
+const EPSILON = 0.001;
+
+function logF(f) {
+  return Math.log10(Math.max(f, SPECTRUM_MIN_FREQ));
+}
+
+function isViewZoomed(fMin, fMax, dFMin, dFMax) {
+  return logF(fMin) > logF(dFMin) + EPSILON || logF(fMax) < logF(dFMax) - EPSILON;
+}
+
+export default function Spectrum({ spectrumData, onHarmonicSelect, processing = false }) {
+  const theme = useTheme();
+
+  const freqs = spectrumData?.freqs;
+  const amplitude = spectrumData?.amplitude;
+  const peaks = spectrumData?.peaks || [];
+  const couplingThreshold = spectrumData?.coupling_threshold;
+
+  // Data bounds
+  const dataFMin = freqs?.length ? Math.max(freqs[0], SPECTRUM_MIN_FREQ) : SPECTRUM_MIN_FREQ;
+  const dataFMax = freqs?.length ? freqs[freqs.length - 1] : 100;
+
+  // View state (frequencies in Hz)
+  const [viewFMin, setViewFMin] = useState(dataFMin);
+  const [viewFMax, setViewFMax] = useState(dataFMax);
+  const viewFMinRef = useRef(viewFMin);
+  viewFMinRef.current = viewFMin;
+  const viewFMaxRef = useRef(viewFMax);
+  viewFMaxRef.current = viewFMax;
+
+  // Peak selection
+  const [selectedPeakIndices, setSelectedPeakIndices] = useState([]);
+
+  // Container width
+  const [containerWidth, setContainerWidth] = useState(0);
+  const containerRef = useRef(null);
+  const scrollRef = useRef(null);
+  const gestureRef = useRef('idle');
+  const widthRef = useRef(containerWidth);
+  widthRef.current = containerWidth;
+
+  // Reset view when new data arrives
+  useEffect(() => {
+    if (freqs?.length) {
+      const fMin = Math.max(freqs[0], SPECTRUM_MIN_FREQ);
+      const fMax = freqs[freqs.length - 1];
+      setViewFMin(fMin);
+      setViewFMax(fMax);
+      setSelectedPeakIndices([]);
+    }
+  }, [freqs]);
+
+  const hasData = !!(freqs && amplitude);
+
+  // Lock Y-axis from full data
+  const [lockedAmpMax, setLockedAmpMax] = useState(null);
+  useEffect(() => {
+    if (!amplitude) { setLockedAmpMax(null); return; }
+    const { ampMax } = getAmpScale(amplitude);
+    setLockedAmpMax(ampMax);
+  }, [amplitude]);
+
+  // Measure container
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      setContainerWidth(entries[0].contentRect.width);
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [hasData]);
+
+  const handleViewChange = useCallback((fMin, fMax) => {
+    setViewFMin(fMin);
+    setViewFMax(fMax);
+  }, []);
+
+  // Spectrum data hook
+  const spData = useSpectrumData({
+    freqs,
+    amplitude,
+    viewFMin,
+    viewFMax,
+    width: containerWidth,
+    height: PLOT_HEIGHT,
+    lockedAmpMax,
+  });
+
+  // Navigation gestures
+  const {
+    scrollCausedViewChangeRef,
+    programmaticScrollRef,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    isZoomed: gestureIsZoomed,
+    isMaxZoom,
+  } = useSpectrumNavigation({
+    containerRef,
+    scrollRef,
+    viewFMin,
+    viewFMax,
+    dataFMin,
+    dataFMax,
+    containerWidth,
+    onViewChange: handleViewChange,
+    gestureRef,
+    hasData,
+  });
+
+  // View → scroll sync
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (gestureRef.current === 'overviewDrag') return;
+    if (scrollCausedViewChangeRef.current) {
+      scrollCausedViewChangeRef.current = false;
+      return;
+    }
+    const logMin = logF(viewFMin);
+    const logMax = logF(viewFMax);
+    const logDur = logMax - logMin;
+    const totalLogRange = logF(dataFMax) - logF(dataFMin);
+    const w = containerWidth;
+    if (totalLogRange <= 0 || w <= 0 || logDur >= totalLogRange - EPSILON) {
+      el.scrollLeft = 0;
+      return;
+    }
+    const spacerW = w * (totalLogRange / logDur);
+    const maxScroll = spacerW - w;
+    programmaticScrollRef.current = true;
+    el.scrollLeft = ((logMin - logF(dataFMin)) / (totalLogRange - logDur)) * maxScroll;
+  }, [viewFMin, viewFMax, dataFMin, dataFMax, containerWidth]);
+
+  // Overview gesture callbacks
+  const handleOverviewGestureStart = useCallback(() => {
+    gestureRef.current = 'overviewDrag';
+  }, []);
+
+  const handleOverviewGestureEnd = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) {
+      const logMin = logF(viewFMinRef.current);
+      const logMax = logF(viewFMaxRef.current);
+      const logDur = logMax - logMin;
+      const totalLogRange = logF(dataFMax) - logF(dataFMin);
+      const w = widthRef.current;
+      if (totalLogRange > 0 && w > 0 && logDur < totalLogRange - EPSILON) {
+        const spacerW = w * (totalLogRange / logDur);
+        const maxSL = spacerW - w;
+        programmaticScrollRef.current = true;
+        el.scrollLeft = ((logMin - logF(dataFMin)) / (totalLogRange - logDur)) * maxSL;
+      }
+    }
+    gestureRef.current = 'idle';
+  }, [dataFMin, dataFMax]);
+
+  // Peak selection toggle
+  const handleTogglePeak = useCallback((peakIdx) => {
+    setSelectedPeakIndices(prev => {
+      const next = prev.includes(peakIdx)
+        ? prev.filter(i => i !== peakIdx)
+        : [...prev, peakIdx];
+      return next;
+    });
+  }, []);
+
+  // Notify parent of selection changes — use ref for callback to avoid infinite loop
+  const onHarmonicSelectRef = useRef(onHarmonicSelect);
+  onHarmonicSelectRef.current = onHarmonicSelect;
+  const peaksRef = useRef(peaks);
+  peaksRef.current = peaks;
+
+  useEffect(() => {
+    if (!onHarmonicSelectRef.current) return;
+    const selectedFreqs = selectedPeakIndices.map(i => peaksRef.current[i]?.freq).filter(Boolean);
+    onHarmonicSelectRef.current(selectedFreqs, selectedPeakIndices);
+  }, [selectedPeakIndices]);
+
+  const isZoomed = isViewZoomed(viewFMin, viewFMax, dataFMin, dataFMax);
+  const logDur = logF(viewFMax) - logF(viewFMin);
+  const totalLogRange = logF(dataFMax) - logF(dataFMin);
+
+  const spacerWidth = isZoomed && logDur > 0
+    ? containerWidth * (totalLogRange / logDur)
+    : containerWidth;
+
+  if (!hasData) return null;
+
+  return (
+    <Paper sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
+      <Typography variant="subtitle2" gutterBottom sx={{ ml: `${AXIS_WIDTH}px` }}>
+        FM Deviation Spectrum
+      </Typography>
+
+      {/* Overview bar */}
+      <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
+        <SpectrumOverview
+          freqs={freqs}
+          amplitude={amplitude}
+          dataFMin={dataFMin}
+          dataFMax={dataFMax}
+          viewFMin={viewFMin}
+          viewFMax={viewFMax}
+          onViewChange={handleViewChange}
+          onGestureStart={handleOverviewGestureStart}
+          onGestureEnd={handleOverviewGestureEnd}
+        />
+      </Box>
+
+      {/* Main spectrum area: Y-axis + scrollable canvas */}
+      <Box sx={{ display: 'flex', width: '100%' }}>
+        <AmplitudeAxis
+          ampMax={spData.ampMax}
+          height={TOTAL_HEIGHT}
+        />
+
+        <Box
+          ref={containerRef}
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            position: 'relative',
+            userSelect: 'none',
+            WebkitTapHighlightColor: 'transparent',
+            overscrollBehaviorX: 'none',
+            touchAction: 'none',
+            cursor: 'pointer',
+            border: `1px solid ${theme.palette.divider}`,
+            borderTop: 'none',
+            minHeight: TOTAL_HEIGHT,
+          }}
+        >
+          {containerWidth > 0 && (
+            <Box
+              ref={scrollRef}
+              sx={{
+                width: '100%',
+                height: TOTAL_HEIGHT,
+                overflowX: isZoomed ? 'scroll' : 'hidden',
+                overflowY: 'hidden',
+                overscrollBehaviorX: 'none',
+                WebkitOverflowScrolling: 'touch',
+                touchAction: isZoomed ? 'pan-x' : 'none',
+                scrollbarWidth: 'none',
+                '&::-webkit-scrollbar': { display: 'none' },
+              }}
+            >
+              <div style={{ width: spacerWidth, height: TOTAL_HEIGHT }}>
+                <SpectrumPlot
+                  freqs={freqs}
+                  amplitude={amplitude}
+                  peaks={peaks}
+                  couplingThreshold={couplingThreshold}
+                  selectedPeakIndices={selectedPeakIndices}
+                  startIdx={spData.startIdx}
+                  endIdx={spData.endIdx}
+                  ampMax={spData.ampMax}
+                  freqToX={spData.freqToX}
+                  ampToY={spData.ampToY}
+                  width={containerWidth}
+                  height={PLOT_HEIGHT}
+                  onTogglePeak={handleTogglePeak}
+                />
+
+                <FreqAxis
+                  viewFMin={viewFMin}
+                  viewFMax={viewFMax}
+                  width={containerWidth}
+                />
+              </div>
+            </Box>
+          )}
+        </Box>
+      </Box>
+
+      {/* Peak chips */}
+      <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
+        <PeakChips
+          peaks={peaks}
+          selectedPeakIndices={selectedPeakIndices}
+          onTogglePeak={handleTogglePeak}
+        />
+      </Box>
+
+      {/* Toolbar — zoom controls */}
+      <Box
+        sx={{
+          ml: `${AXIS_WIDTH}px`,
+          mt: 0.5,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 0.5,
+        }}
+      >
+        <Tooltip title="Zoom in (+)">
+          <span>
+            <IconButton onClick={zoomIn} disabled={isMaxZoom} size="small">
+              <ZoomInIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Zoom out (-)">
+          <span>
+            <IconButton onClick={zoomOut} disabled={!isZoomed} size="small">
+              <ZoomOutIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Reset zoom (0)">
+          <span>
+            <IconButton onClick={resetZoom} disabled={!isZoomed} size="small">
+              <ZoomOutMapIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Box>
+    </Paper>
+  );
+}

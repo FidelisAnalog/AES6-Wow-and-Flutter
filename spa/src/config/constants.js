@@ -28,3 +28,14 @@ export const MAX_EXPORT_PLOT_SECONDS = 60;
 
 /** Default export plot duration when no region selected */
 export const DEFAULT_EXPORT_SHORT_SECONDS = 5;
+
+// ── Spectrum ──
+
+/** Log axis lower bound (Hz) — below any real peak */
+export const SPECTRUM_MIN_FREQ = 0.3;
+
+/** Minimum zoom range in decades */
+export const SPECTRUM_MIN_VIEW_DECADES = 0.3;
+
+/** Peak marker triangle height (px) */
+export const SPECTRUM_PEAK_MARKER_SIZE = 8;
