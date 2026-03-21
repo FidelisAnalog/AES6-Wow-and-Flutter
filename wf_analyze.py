@@ -404,6 +404,79 @@ def plot_lissajous(r, freq):
     plt.close(fig)
 
 
+def plot_lissajous_peaks(r):
+    """Plot AM/FM Lissajous panel for all detected spectrum peaks. Audio only."""
+    all_peaks = r['spectrum']['peaks']
+    if not all_peaks:
+        print("  No peaks found — skipping Lissajous panel")
+        return
+
+    # Same filtering as spectrum plot: top 12 by amplitude, >8% of max
+    max_amp = max(p['amplitude'] for p in all_peaks)
+    peaks = [p for p in all_peaks if p['amplitude'] >= max_amp * 0.08]
+    peaks = sorted(peaks, key=lambda p: p['amplitude'], reverse=True)[:12]
+    peaks = sorted(peaks, key=lambda p: p['freq'])
+
+    n = len(peaks)
+    if n == 0:
+        print("  No significant peaks — skipping Lissajous panel")
+        return
+
+    ncols = (n + 1) // 2
+    nrows = 2 if n > 1 else 1
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 8),
+                              squeeze=False)
+
+    fig.suptitle(f'AM/FM Lissajous — {r["basename"]}',
+                 fontsize=11, y=0.98)
+
+    for i, pk in enumerate(peaks):
+        freq = pk['freq']
+        row = i // ncols
+        col = i % ncols
+        ax = axes[row][col]
+
+        try:
+            liss = wf_core.getPlotData('lissajous', {'freq': freq})
+            am = np.array(liss['am_norm'])
+            fm = np.array(liss['fm_norm'])
+
+            ax.plot(am, fm, linewidth=0.5, color='#2266aa', alpha=0.6)
+            ax.set_xlim(-1.5, 1.5)
+            ax.set_ylim(-1.5, 1.5)
+            ax.set_aspect('equal')
+            ax.axhline(0, color='gray', linewidth=0.3)
+            ax.axvline(0, color='gray', linewidth=0.3)
+            ax.set_xlabel('AM', fontsize=7)
+            ax.set_ylabel('FM', fontsize=7)
+            ax.tick_params(labelsize=6)
+
+            sig_text = ' *' if liss['significant'] else ''
+            label = pk.get('label') or ''
+            ax.set_title(f'{freq:.2f} Hz  R={liss["R"]:.3f}  '
+                         f'φ={liss["phase"]:.0f}°{sig_text}\n'
+                         f'{label}',
+                         fontsize=7)
+            ax.grid(True, alpha=0.3)
+        except Exception as e:
+            ax.text(0.5, 0.5, f'{freq:.2f} Hz\nError',
+                    ha='center', va='center', transform=ax.transAxes,
+                    fontsize=8)
+            ax.set_title(f'{freq:.2f} Hz', fontsize=7)
+
+    # Hide unused subplots
+    for i in range(n, nrows * ncols):
+        row = i // ncols
+        col = i % ncols
+        axes[row][col].set_visible(False)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    out_name = os.path.splitext(r['basename'])[0] + '_lissajous_peaks.png'
+    plt.savefig(out_name, dpi=150, bbox_inches='tight')
+    print(f"Saved: {out_name}")
+    plt.close(fig)
+
+
 # ========================= CLI =========================
 
 if __name__ == '__main__':
@@ -420,6 +493,8 @@ if __name__ == '__main__':
                         help='Number of revolutions in polar plot (default: 2)')
     parser.add_argument('--lissajous-freq', type=float, default=None,
                         help='Frequency (Hz) for AM/FM Lissajous plot (audio only)')
+    parser.add_argument('--lissajous-peaks', action='store_true',
+                        help='AM/FM Lissajous panel for all detected peaks (audio only)')
     args = parser.parse_args()
 
     results = analyze(args.input, rpm=args.rpm,
@@ -434,3 +509,9 @@ if __name__ == '__main__':
             print("  Lissajous requires audio input — skipping")
         else:
             plot_lissajous(results, args.lissajous_freq)
+
+    if args.lissajous_peaks:
+        if results['input_type'] != 'audio':
+            print("  Lissajous requires audio input — skipping")
+        else:
+            plot_lissajous_peaks(results)
