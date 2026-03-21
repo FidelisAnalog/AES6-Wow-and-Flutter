@@ -10,7 +10,7 @@ import { loadAudioFile, loadAudioFromUrl } from './services/audioLoader.js';
 import useQueryParams from './hooks/useQueryParams.js';
 import {
   initPyBridge, onStatus, onResult, onError,
-  analyzeFull,
+  analyzeFull, getPlotData,
 } from './services/pyBridge.js';
 
 const EPSILON = 0.001;
@@ -196,9 +196,9 @@ function App() {
 
       {/* Deviation waveform — always shows full-file data */}
       <Waveform
-        tUniform={fullResult?.t_uniform}
-        deviationPct={fullResult?.deviation_pct}
-        wfPeak2Sigma={fullResult?.wf_peak_2sigma}
+        tUniform={fullResult?.plots?.dev_time?.t}
+        deviationPct={fullResult?.plots?.dev_time?.deviation_pct}
+        wfPeak2Sigma={fullResult?.metrics?.standard?.unweighted_peak?.value}
         totalDuration={audioInfo?.duration}
         harmonicOverlays={[]}
         processing={processing}
@@ -210,7 +210,7 @@ function App() {
       <StatsPanel
         result={activeResult}
         processing={processing}
-        duration={activeResult?.duration ?? audioInfo?.duration}
+        duration={activeResult?.metrics?.duration ?? audioInfo?.duration}
       />
     </Layout>
   );

@@ -19,7 +19,7 @@ const PYODIDE_VERSION = '0.27.5';
 
 /**
  * Initialize the Python bridge. Call once on app mount.
- * Loads Pyodide, numpy, scipy, and wf_analyzer.py on the main thread.
+ * Loads Pyodide, numpy, scipy, and wf_core.py on the main thread.
  */
 export function initPyBridge() {
   if (_initPromise) return; // Already initialized (React StrictMode double-mount)
@@ -44,20 +44,28 @@ async function _init() {
     await _pyodide.loadPackage(['numpy', 'scipy']);
 
     _onStatus?.('Loading analyzer module...');
-    const resp = await fetch('/python/wf_analyzer.py');
+    const resp = await fetch('/python/wf_core.py');
     if (!resp.ok) {
-      throw new Error(`Failed to fetch wf_analyzer.py: ${resp.status} ${resp.statusText}`);
+      throw new Error(`Failed to fetch wf_core.py: ${resp.status} ${resp.statusText}`);
     }
     const moduleCode = await resp.text();
     _pyodide.runPython(moduleCode);
 
-    // Wire up status callback
+    // Status callback returns a Promise so Python (via runPythonAsync) yields
+    // to the browser event loop, allowing React to re-render between stages.
+    let _lastWall = performance.now();
     const statusCallback = (msg) => {
-      _onStatus?.(String(msg));
+      const now = performance.now();
+      const str = String(msg);
+      console.log(`[wf_core] ${str} — ${(now - _lastWall).toFixed(0)} ms`);
+      _lastWall = now;
+      _onStatus?.(str);
+      return new Promise(r => requestAnimationFrame(r));
     };
     _pyodide.globals.set('_js_status_callback', statusCallback);
     _pyodide.runPython(`
 import json as _json
+import numpy as _np
 set_status_callback(_js_status_callback)
 `);
 
@@ -90,7 +98,7 @@ export function isReady() { return _ready; }
  * @param {Float32Array|Float64Array} pcmData
  * @param {number} sampleRate
  */
-export function analyzeFull(pcmData, sampleRate) {
+export async function analyzeFull(pcmData, sampleRate) {
   if (!_ready) {
     _onError?.('Python runtime not ready', '');
     return;
@@ -104,7 +112,7 @@ export function analyzeFull(pcmData, sampleRate) {
     _pyodide.globals.set('_pcm_data', f64);
     _pyodide.globals.set('_sample_rate', sampleRate);
 
-    _pyodide.runPython(`
+    await _pyodide.runPythonAsync(`
 import numpy as np
 import traceback as _tb
 
@@ -114,8 +122,29 @@ _worker_error = None
 try:
     _pcm = np.asarray(_pcm_data.to_py(), dtype=np.float64)
     _sr = int(_sample_rate)
-    _result = analyze(_pcm, _sr)
-    _worker_result = _json.dumps(_result)
+    _result = await analyzeFull(_pcm, _sr)
+
+    # Convert large numpy arrays in-place via .tolist() (C-level, fast).
+    for _k in ('t', 'deviation_pct'):
+        _arr = _result.get('plots', {}).get('dev_time', {}).get(_k)
+        if _arr is not None and hasattr(_arr, 'tolist'):
+            _result['plots']['dev_time'][_k] = _arr.tolist()
+    for _k in ('freqs', 'amplitude'):
+        _arr = _result.get('plots', {}).get('spectrum', {}).get(_k)
+        if _arr is not None and hasattr(_arr, 'tolist'):
+            _result['plots']['spectrum'][_k] = _arr.tolist()
+    # Small numpy scalars/bools in metrics and peaks handled by default hook
+    def _np_default(obj):
+        if isinstance(obj, _np.bool_):
+            return bool(obj)
+        if isinstance(obj, _np.integer):
+            return int(obj)
+        if isinstance(obj, _np.floating):
+            return float(obj)
+        if isinstance(obj, _np.ndarray):
+            return obj.tolist()
+        raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
+    _worker_result = _json.dumps(_result, default=_np_default)
 except Exception as _e:
     _worker_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})
 finally:
@@ -141,5 +170,57 @@ finally:
     }
   } catch (err) {
     _onError?.(String(err), err?.stack || '');
+  }
+}
+
+/**
+ * Fetch on-demand plot data from stashed Python state.
+ * @param {string} plotId - Plot identifier (e.g. 'polar', 'histogram', 'lissajous')
+ * @param {object} [params={}] - Plot-specific parameters
+ * @returns {object|null} Plot data, or null on error
+ */
+export function getPlotData(plotId, params = {}) {
+  if (!_ready) {
+    _onError?.('Python runtime not ready', '');
+    return null;
+  }
+
+  try {
+    _pyodide.globals.set('_plot_id', plotId);
+    _pyodide.globals.set('_plot_params', JSON.stringify(params));
+
+    _pyodide.runPython(`
+import traceback as _tb
+
+_plot_result = None
+_plot_error = None
+
+try:
+    _params = _json.loads(_plot_params)
+    _data = getPlotData(_plot_id, _params)
+    _plot_result = _json.dumps(_data, cls=_NumpyEncoder)
+except Exception as _e:
+    _plot_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})
+finally:
+    del _plot_id, _plot_params
+    for _v in ('_params', '_data', '_e'):
+        if _v in dir():
+            exec(f'del {_v}')
+`);
+
+    const resultJson = _pyodide.globals.get('_plot_result');
+    const errorJson = _pyodide.globals.get('_plot_error');
+
+    _pyodide.runPython('del _plot_result, _plot_error');
+
+    if (errorJson) {
+      const err = JSON.parse(errorJson);
+      _onError?.(err.message, err.traceback);
+      return null;
+    }
+    return resultJson ? JSON.parse(resultJson) : null;
+  } catch (err) {
+    _onError?.(String(err), err?.stack || '');
+    return null;
   }
 }

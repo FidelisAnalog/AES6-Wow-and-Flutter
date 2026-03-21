@@ -1,5 +1,5 @@
 /**
- * Web Worker: loads Pyodide + wf_analyzer.py, runs analysis off main thread.
+ * Web Worker: loads Pyodide + wf_core.py, runs analysis off main thread.
  *
  * Messages IN:
  *   { type: 'analyze', pcm: ArrayBuffer, sampleRate: number }
@@ -18,7 +18,7 @@ const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/p
 let pyodide = null;
 
 /**
- * Bootstrap: load Pyodide, install packages, load wf_analyzer.py,
+ * Bootstrap: load Pyodide, install packages, load wf_core.py,
  * wire up status callback. Posts { type: 'ready' } when done.
  */
 async function init() {
@@ -36,12 +36,12 @@ async function init() {
 
     self.postMessage({ type: 'status', message: 'Loading analyzer module...' });
 
-    // Fetch wf_analyzer.py from the app's public directory.
-    // In dev (vite dev server) this is served from /python/wf_analyzer.py.
+    // Fetch wf_core.py from the app's public directory.
+    // In dev (vite dev server) this is served from /python/wf_core.py.
     // In production build it's in the dist output.
-    const resp = await fetch('/python/wf_analyzer.py');
+    const resp = await fetch('/python/wf_core.py');
     if (!resp.ok) {
-      throw new Error(`Failed to fetch wf_analyzer.py: ${resp.status} ${resp.statusText}`);
+      throw new Error(`Failed to fetch wf_core.py: ${resp.status} ${resp.statusText}`);
     }
     const moduleCode = await resp.text();
 
@@ -111,7 +111,7 @@ _worker_error = None
 try:
     _pcm = np.asarray(_pcm_data.to_py(), dtype=np.float64)
     _sr = int(_sample_rate)
-    _result = analyze(_pcm, _sr)
+    _result = analyzeFull(_pcm, _sr)
     _worker_result = _json.dumps(_result)
 except Exception as _e:
     _worker_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})

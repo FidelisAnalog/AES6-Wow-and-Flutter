@@ -154,12 +154,11 @@ Added alongside the existing weighted computation in the metrics function (renam
 
 **Why a bandpass is needed:** The AES6 weighting filter inherently rolls off below ~0.5 Hz and above ~200 Hz. Without weighting, the raw deviation includes DC drift and high-frequency noise. The explicit 0.5–200 Hz bandpass matches the effective measurement band of the weighted path, making weighted and unweighted directly comparable.
 
-**Computation:**
-1. Bandpass deviation at 0.5–200 Hz (Butterworth, same order as existing filters)
-2. LP at 6 Hz → unweighted wow RMS
-3. HP at 6 Hz → unweighted flutter RMS
-
-**Return location:** `metrics.non_standard.unweighted_wow_rms` and `metrics.non_standard.unweighted_flutter_rms`
+**Computation (at 1 kHz after SRC):**
+1. Bandpass deviation at 0.2–min(0.4×carrier, 200) Hz (Butterworth order 4, per AES6 6.1.1 NOTE 0.2 Hz lower bound)
+2. Unweighted peak (2σ) and RMS from bandpassed signal → `metrics.standard`
+3. Wow: bandpass 0.5–6 Hz → unweighted wow RMS → `metrics.non_standard`
+4. Flutter: HP at 6 Hz on bandpassed signal → unweighted flutter RMS → `metrics.non_standard`
 
 ---
 
@@ -168,45 +167,51 @@ Added alongside the existing weighted computation in the metrics function (renam
 Computed during `analyzeFull` for audio input only.
 
 ### During initial analysis:
-1. Extract AM envelope via Hilbert transform of the prefiltered signal (one FFT, stash result in module state)
-2. FM deviation already computed by the zero-crossing pipeline (stash in module state)
-3. For each detected spectrum peak, compute `coupling_strength(freq)`:
-   - Frequency-domain bandpass (one `rfft` of AM + one of FM already done, per-peak is just multiply + `irfft`)
-   - Compute R (circular mean resultant length of instantaneous phase difference)
+1. Extract AM envelope via Hilbert transform of the prefiltered signal, normalize to percent deviation from mean, resample to match deviation grid (stashed in module state as `_am_full`)
+2. FM deviation already computed by the zero-crossing pipeline (stashed as `_fm_full`, same as `deviation_pct`)
+3. Find data-driven test frequencies from peaks in both AM and FM spectra (`_find_coupling_freqs`) — merges and deduplicates peaks within 0.1 Hz
+4. For each test frequency, compute `_compute_coupling_at_freq()`:
+   - `sosfiltfilt` Butterworth bandpass (order 4, bandwidth = max(0.15, freq × 0.3))
+   - Skip 3s edges (filter settling)
+   - Compute R (circular mean resultant length of instantaneous phase difference via Hilbert)
    - Signal amplitude = geometric mean of bandpassed AM/FM RMS
-   - Combined = R × amplitude
-4. Significance line = 3× median of all coupling values → stored as `spectrum.coupling_threshold`
-5. Each peak in `spectrum.peaks` gets `coupling_strength` (the R × sig value) and `am_coupled` (bool: above threshold)
-6. Motor harmonic identification (`identify_motor_harmonics()`) assigns `label` per peak — requires `rpm` for rotation harmonics, additionally `motor_slots`/`motor_poles`/`drive_ratio` for electrical/slot/ripple. Peaks remain `label: None` if the needed parameters weren't provided.
+   - Combined strength = R × amplitude
+5. Significance line = 3× median of all coupling values → stored as `spectrum.coupling_threshold`
+6. Match each spectrum peak to nearest test frequency (within tolerance: max(0.15 Hz, 15% of freq)). Assign `coupling_strength` and `am_coupled` (bool: above threshold)
+7. Motor harmonic identification (`_identify_motor_harmonics()`) assigns `label` per peak — requires `rpm` for rotation harmonics, additionally `motor_slots`/`motor_poles`/`drive_ratio` for electrical/slot/ripple. Peaks remain `label: None` if the needed parameters weren't provided.
 
 ### On-demand Lissajous:
 When `getPlotData('lissajous', { freq })` is called:
 - Retrieve stashed AM/FM arrays (already in module state from initial pass)
-- Frequency-domain bandpass at requested freq
-- Normalize both to peak amplitude
+- `sosfiltfilt` Butterworth bandpass at requested freq (same method as coupling markers)
+- Skip 3s edges, normalize both to peak amplitude
+- Compute phase stats via Hilbert transform
+- Check significance against stored `coupling_threshold`
 - Return `{ am_norm, fm_norm, R, phase, strength, significant }`
 - Frontend draws the scatter plot
 
-### Vectorization for PyScript/Pyodide:
-- Single `rfft` of AM and FM signals (done once, stashed)
-- Per-peak: multiply by Gaussian frequency-domain window, `irfft`, compute phase stats
-- All NumPy vector ops, no per-peak `scipy.signal.butter` or `sosfiltfilt`
-- ~12 peaks on ~6000 samples: near-instant in Pyodide
+### Performance in Pyodide:
+- Per-peak: `sosfiltfilt` Butterworth bandpass + Hilbert phase stats
+- ~12 peaks on ~6000 samples: fast in Pyodide (all NumPy/SciPy vector ops)
 
 ---
 
 ## 5. Module State
 
-`analyzeFull` stashes intermediate arrays in module-level variables so `getPlotData` can reuse them without recomputation:
+`analyzeFull` stashes intermediate arrays in a module-level `_state` dict so `getPlotData` can reuse them without recomputation:
 
-- `_deviation_pct` — the deviation time series
-- `_t_uniform` — uniform time grid
-- `_output_rate` — sample rate of deviation signal
-- `_f_mean` — mean carrier/rotation frequency
-- `_am_envelope` — AM signal (Hilbert envelope), audio input only
-- `_fm_deviation` — FM signal (same as deviation_pct), audio input only
-- `_am_fft` — rfft of AM, for frequency-domain bandpass
-- `_fm_fft` — rfft of FM, for frequency-domain bandpass
+- `_deviation_pct` — the deviation time series (%)
+- `_t_uniform` — uniform time grid (s)
+- `_output_rate` — sample rate of deviation signal (Hz)
+- `_f_mean` — mean measured frequency (Hz)
+- `_f_rot` — rotation frequency (rpm / 60), None if rpm unknown
+- `_rpm` — platter RPM
+- `_motor_slots`, `_motor_poles`, `_drive_ratio` — motor params for harmonic ID
+- `_am_full` — AM signal resampled to deviation grid (% deviation from mean), audio only
+- `_fm_full` — FM signal (same as deviation_pct), audio only
+- `_am_envelope` — AM resampled array reference, audio only
+- `_fm_deviation` — FM array reference, audio only
+- `_coupling_threshold` — 3× median significance line, audio only
 - `_input_type` — 'audio' or 'device', so getPlotData knows what's available
 
 Cleared on each new `analyzeFull` call.
@@ -215,7 +220,7 @@ Cleared on each new `analyzeFull` call.
 
 ## 6. Metrics Grouping
 
-Current `aes6` dict conflates standardized and non-standardized metrics. New grouping by provenance:
+Metrics grouped by provenance (implemented):
 
 | Group | Contents | Standard |
 |---|---|---|
@@ -230,23 +235,28 @@ Confidence is an int: `0` = full, `1` = medium, `2` = low. Higher = less confide
 
 ## 7. Files
 
-Engine module: `/ref/spa/wf_core.py`. CLI wrapper (future): `/ref/spa/wf_analyzer.py`. `fg_analyze.py` is not modified.
+- `/wf_core.py` — Engine module (shared by SPA and CLI). No plotting, no file I/O, no CLI.
+- `/wf_analyze.py` — Standalone CLI wrapper. Consumes `wf_core`. Not used by the SPA.
+- Old `fg_analyze.py` and variants deleted.
 
-### Functions to add:
-- `analyzeFull()` — single entry point, replaces `analyze()`. Audio path runs full pipeline internally; device path enters at deviation stage.
-- `getPlotData()` — on-demand plot data from stashed state
-- `detect_device_format()` — format detection from text content
-- `parse_device_data()` — dispatcher to format-specific parsers
-- `parse_shaknspin_text()` — ShakNSpin parser (string input, adapted from existing)
-- `coupling_strength()` — R × amplitude at one frequency (frequency-domain bandpass)
-- `compute_coupling_markers()` — batch coupling for all spectrum peaks, returns per-peak strength + threshold
-- `identify_motor_harmonics()` — existing function, assigns `label` to each peak based on rotation frequency and known harmonic patterns
+### Public API (`wf_core`):
+- `analyzeFull(data, sampleRate=None, inputType='audio', rpm=None, motor_slots=None, motor_poles=None, drive_ratio=1.0)` — single entry point
+- `getPlotData(plotId, params={})` — on-demand plot data from stashed state
+- `set_status_callback(cb)` — progress updates during analysis
 
-### Functions to modify:
-- `compute_aes6_metrics()` → rename to `compute_wf_metrics()`, add unweighted wow/flutter, restructure return dict
-
-### Functions to remove:
-- `analyze()` — replaced by `analyzeFull()`. Pipeline stages (carrier est, prefilter, zero-crossing, deviation, metrics, spectrum) become internal steps within `analyzeFull`, not a separate function it wraps.
+### Internal functions (prefixed `_`):
+- `_analyze_audio()` / `_analyze_device()` — input-type-specific pipelines
+- `_estimate_carrier_freq()`, `_bandpass_prefilter()`, `_find_zero_crossings()`, `_crossings_to_frequency()` — audio pipeline stages
+- `_smooth_frequency()`, `_interpolate_to_uniform()`, `_edge_trim()`, `_outlier_reject()`, `_median_despike()` — signal conditioning
+- `_src_to_1khz()`, `_make_aes6_weighting_filter()` — SRC + weighting
+- `_compute_wf_metrics()` — all W&F metrics (weighted, unweighted, drift)
+- `_compute_spectrum()` — deviation spectrum + peak detection
+- `_identify_motor_harmonics()` — peak labeling from rotation/motor params
+- `_compute_coupling_at_freq()` — sosfiltfilt Butterworth bandpass coupling at one frequency
+- `_find_coupling_freqs()` — data-driven test frequencies from AM/FM spectra
+- `_compute_coupling_markers()` — batch coupling for all spectrum peaks
+- `_detect_device_format()`, `_parse_device_data()`, `_parse_shaknspin_text()` — device input
+- `_plot_polar()`, `_plot_histogram()`, `_plot_harmonic_extract()`, `_plot_lissajous()` — on-demand plot handlers
 
 ---
 
