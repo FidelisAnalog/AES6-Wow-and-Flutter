@@ -10,7 +10,8 @@
 
 import { useRef, useState, useCallback } from 'react';
 
-const EDGE_ZONE = 6; // px from bottom border that triggers resize cursor
+const EDGE_ZONE_MOUSE = 6;  // px from bottom border for mouse
+const EDGE_ZONE_TOUCH = 20; // px from bottom border for touch
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 600;
 
@@ -38,7 +39,8 @@ export default function useResizableHeight(storageKey, defaultHeight) {
     const el = containerElRef.current;
     if (!el) return false;
     const rect = el.getBoundingClientRect();
-    return e.clientY >= rect.bottom - EDGE_ZONE;
+    const zone = e.pointerType === 'touch' ? EDGE_ZONE_TOUCH : EDGE_ZONE_MOUSE;
+    return e.clientY >= rect.bottom - zone;
   }, []);
 
   const handlePointerDown = useCallback((e) => {
