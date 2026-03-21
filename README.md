@@ -1,6 +1,6 @@
 # Wow & Flutter Analysis Engine
 
-Turntable and tape transport wow & flutter measurement from FG (frequency generator) signals, test records, and device sensor exports. Implements AES6-2008 / DIN 45507 / IEC 60386 weighted and unweighted metrics with calibration-verified accuracy.
+Turntable and tape transport wow & flutter measurement from any audio carrier (FG signal, test record tone, etc.) or device sensor export. Implements AES6-2008 / DIN 45507 / IEC 60386 weighted and unweighted metrics with calibration-verified accuracy.
 
 Two main files: `wf_core.py` (analysis engine) and `wf_analyze.py` (CLI frontend). The engine is designed for multiple consumers — a web SPA frontend also uses `wf_core.py` with identical results.
 
@@ -11,10 +11,10 @@ Two main files: `wf_core.py` (analysis engine) and `wf_analyze.py` (CLI frontend
 ### Basic usage
 
 ```bash
-# Audio FG signal — direct drive, no motor params
+# Audio carrier — direct drive, no motor params
 python wf_analyze.py recording.wav
 
-# Audio FG signal — belt drive with motor identification
+# Audio carrier — belt drive with motor identification
 python wf_analyze.py recording.wav \
     --rpm 33.333 --motor-poles 24 --motor-slots 2 --drive-ratio 7.5
 
@@ -26,7 +26,7 @@ python wf_analyze.py device_export.txt
 
 The tool accepts two input types, distinguished by file extension:
 
-**Audio (.wav)** — FG signal recorded from a turntable motor's frequency generator or a test record groove. Any carrier frequency from ~50 Hz to ~5 kHz. The full DSP pipeline runs: carrier detection, prefiltering, zero-crossing demodulation, deviation extraction, metrics, spectrum analysis, and AM/FM coupling.
+**Audio (.wav)** — Any recording containing a carrier tone: FG (frequency generator) output, test record groove tone, etc. Any carrier frequency from ~50 Hz to ~5 kHz. The full DSP pipeline runs: carrier detection, prefiltering, zero-crossing demodulation, deviation extraction, metrics, spectrum analysis, and AM/FM coupling.
 
 **Device text (.txt)** — Exported speed data from a measurement device (currently ShakNSpin). The data is already angular velocity, so the pipeline enters at the deviation/metrics stage. No carrier detection, no FM demodulation.
 
