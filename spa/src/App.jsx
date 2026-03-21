@@ -49,9 +49,9 @@ function App() {
     onStatus((msg) => {
       // During analysis, update DOM directly to avoid React re-renders that scroll the page
       if (statusRef.current) statusRef.current.textContent = msg;
-      if (msg === 'Python runtime ready') {
+      if (msg === 'Ready') {
         setPyReady(true);
-        setStatus('Ready \u2014 drop a file to analyze');
+        setStatus('Ready');
       }
     });
 
@@ -234,9 +234,14 @@ function App() {
         {hasFile && <FileInput onFileSelected={handleFile} disabled={!pyReady} compact />}
       </Box>
 
-      {/* Hero file input — only before first file is loaded, hidden when URL loading */}
-      {!hasFile && !fileUrl && <FileInput onFileSelected={handleFile} disabled={!pyReady} />}
-      {!hasFile && fileUrl && (
+      {/* Hero area — spinner until ready, then file card (unless URL loading) */}
+      {!hasFile && !pyReady && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '50%', height: '50vh', mx: 'auto', my: 'auto' }}>
+          <CircularProgress size={32} />
+        </Box>
+      )}
+      {!hasFile && pyReady && !fileUrl && <FileInput onFileSelected={handleFile} disabled={!pyReady} />}
+      {!hasFile && pyReady && fileUrl && (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '50%', height: '50vh', mx: 'auto', my: 'auto' }}>
           <CircularProgress size={32} />
         </Box>

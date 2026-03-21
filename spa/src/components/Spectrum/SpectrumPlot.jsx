@@ -12,15 +12,16 @@ export default function SpectrumPlot({
   freqs,
   amplitude,
   peaks = [],
-  couplingThreshold,
   selectedPeakIndices = [],
   startIdx,
   endIdx,
+  ampMin = 0,
   ampMax,
   freqToX,
   ampToY,
   width,
   height,
+  logAmpScale = false,
   onTogglePeak,
 }) {
   const canvasRef = useRef(null);
@@ -41,8 +42,8 @@ export default function SpectrumPlot({
   useEffect(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(draw);
-  }, [freqs, amplitude, peaks, couplingThreshold, selectedPeakIndices,
-      startIdx, endIdx, ampMax, theme.palette.mode, width, height]);
+  }, [freqs, amplitude, peaks, selectedPeakIndices,
+      startIdx, endIdx, ampMin, ampMax, logAmpScale, theme.palette.mode, width, height]);
 
   function draw() {
     const canvas = canvasRef.current;
@@ -60,7 +61,7 @@ export default function SpectrumPlot({
     ctx.fillRect(0, 0, width, height);
 
     // Grid — horizontal amplitude lines
-    drawGrid(ctx, width, height, ampMax, ampToY, sp.grid);
+    drawGrid(ctx, width, height, ampMin, ampMax, ampToY, sp.grid, logAmpScale);
 
     // Spectrum trace
     ctx.strokeStyle = sp.trace;
@@ -176,21 +177,35 @@ function buildPeakLabel(peak) {
   return peak.freq.toFixed(2);
 }
 
-function drawGrid(ctx, width, height, ampMax, ampToY, gridColor) {
-  const rawStep = ampMax / 5;
-  const step = niceNum(rawStep);
-
+function drawGrid(ctx, width, height, ampMin, ampMax, ampToY, gridColor, logScale) {
   ctx.strokeStyle = gridColor;
   ctx.lineWidth = 0.5;
 
-  let val = step;
-  while (val < ampMax) {
-    const y = ampToY(val);
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.stroke();
-    val += step;
+  if (logScale) {
+    // dB grid lines: every 10 dB relative to max
+    for (let db = -10; db >= -80; db -= 10) {
+      const val = ampMax * Math.pow(10, db / 20);
+      if (val < ampMin * 0.9) break;
+      const y = ampToY(val);
+      if (y >= 0 && y <= height) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+    }
+  } else {
+    const rawStep = ampMax / 5;
+    const step = niceNum(rawStep);
+    let val = step;
+    while (val < ampMax) {
+      const y = ampToY(val);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+      val += step;
+    }
   }
 }
 

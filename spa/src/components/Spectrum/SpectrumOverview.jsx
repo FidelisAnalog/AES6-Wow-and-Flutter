@@ -37,6 +37,7 @@ const SpectrumOverview = React.memo(function SpectrumOverview({
 }) {
   const theme = useTheme();
   const sp = theme.palette.spectrum;
+  const wf = theme.palette.waveform;
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
@@ -116,7 +117,7 @@ const SpectrumOverview = React.memo(function SpectrumOverview({
     ctx.save();
     ctx.scale(dpr, dpr);
 
-    ctx.fillStyle = sp.overviewBackground;
+    ctx.fillStyle = wf.overviewBackground;
     ctx.fillRect(0, 0, cssW, cssH);
 
     const { ampMax } = getAmpScale(amplitude);
@@ -311,7 +312,6 @@ const SpectrumOverview = React.memo(function SpectrumOverview({
         WebkitTapHighlightColor: 'transparent',
         borderRadius: '4px 4px 0 0',
         border: `1px solid ${theme.palette.divider}`,
-        borderBottom: 'none',
         overflow: 'hidden',
         minHeight: OVERVIEW_HEIGHT,
         touchAction: 'none',

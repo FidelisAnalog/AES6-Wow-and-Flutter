@@ -42,7 +42,6 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
   const freqs = spectrumData?.freqs;
   const amplitude = spectrumData?.amplitude;
   const peaks = spectrumData?.peaks || [];
-  const couplingThreshold = spectrumData?.coupling_threshold;
 
   // Data bounds
   const dataFMin = freqs?.length ? Math.max(freqs[0], SPECTRUM_MIN_FREQ) : SPECTRUM_MIN_FREQ;
@@ -58,6 +57,9 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
 
   // Peak selection
   const [selectedPeakIndices, setSelectedPeakIndices] = useState([]);
+
+  // Log/linear Y-axis toggle
+  const [logAmpScale, setLogAmpScale] = useState(false);
 
   // Container width
   const [containerWidth, setContainerWidth] = useState(0);
@@ -112,6 +114,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
     width: containerWidth,
     height: PLOT_HEIGHT,
     lockedAmpMax,
+    logAmpScale,
   });
 
   // Navigation gestures
@@ -250,8 +253,10 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
       {/* Main spectrum area: Y-axis + scrollable canvas */}
       <Box sx={{ display: 'flex', width: '100%' }}>
         <AmplitudeAxis
+          ampMin={spData.ampMin}
           ampMax={spData.ampMax}
           height={TOTAL_HEIGHT}
+          logScale={logAmpScale}
         />
 
         <Box
@@ -290,15 +295,16 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
                   freqs={freqs}
                   amplitude={amplitude}
                   peaks={peaks}
-                  couplingThreshold={couplingThreshold}
                   selectedPeakIndices={selectedPeakIndices}
                   startIdx={spData.startIdx}
                   endIdx={spData.endIdx}
+                  ampMin={spData.ampMin}
                   ampMax={spData.ampMax}
                   freqToX={spData.freqToX}
                   ampToY={spData.ampToY}
                   width={containerWidth}
                   height={PLOT_HEIGHT}
+                  logAmpScale={logAmpScale}
                   onTogglePeak={handleTogglePeak}
                 />
 
@@ -322,17 +328,28 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
         />
       </Box>
 
-      {/* Toolbar — zoom controls */}
+      {/* Toolbar — scale toggle + zoom controls */}
       <Box
         sx={{
           ml: `${AXIS_WIDTH}px`,
           mt: 0.5,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'flex-end',
           gap: 0.5,
         }}
       >
+        <Tooltip title={logAmpScale ? 'Switch to linear scale' : 'Switch to log (dB) scale'}>
+          <IconButton
+            onClick={() => setLogAmpScale(prev => !prev)}
+            size="small"
+            sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 'bold', minWidth: 32 }}
+          >
+            {logAmpScale ? 'LIN' : 'LOG'}
+          </IconButton>
+        </Tooltip>
+
+        <Box sx={{ flex: 1 }} />
+
         <Tooltip title="Zoom in (+)">
           <span>
             <IconButton onClick={zoomIn} disabled={isMaxZoom} size="small">

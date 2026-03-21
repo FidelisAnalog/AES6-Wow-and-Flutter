@@ -40,6 +40,9 @@ function upperBound(arr, value) {
  * @param {number} params.height - pixel height of canvas
  * @param {number|null} params.lockedAmpMax - explicit Y max (null = auto from visible)
  */
+/** Decades of dynamic range for log Y-axis */
+const LOG_DYNAMIC_RANGE_DB = 60;
+
 export default function useSpectrumData({
   freqs,
   amplitude,
@@ -48,6 +51,7 @@ export default function useSpectrumData({
   width,
   height,
   lockedAmpMax = null,
+  logAmpScale = false,
 }) {
   return useMemo(() => {
     if (!freqs || !amplitude || !width || !height || viewFMin >= viewFMax) {
@@ -55,7 +59,7 @@ export default function useSpectrumData({
         startIdx: 0, endIdx: 0,
         ampMin: 0, ampMax: 1,
         freqToX: () => 0, xToFreq: () => 1, ampToY: () => 0,
-        visibleCount: 0,
+        visibleCount: 0, logAmpScale,
       };
     }
 
@@ -64,7 +68,6 @@ export default function useSpectrumData({
     const endIdx = Math.min(freqs.length, upperBound(freqs, viewFMax) + 1);
 
     // Y-axis: 0 to max amplitude
-    const ampMin = 0;
     let ampMax;
     if (lockedAmpMax != null) {
       ampMax = lockedAmpMax;
@@ -73,10 +76,19 @@ export default function useSpectrumData({
       for (let i = startIdx; i < endIdx; i++) {
         if (amplitude[i] > maxVal) maxVal = amplitude[i];
       }
-      ampMax = Math.max(maxVal * 1.1, 1e-6);
+      ampMax = Math.max(maxVal * 1.25, 1e-6);
     }
 
-    // Coordinate transforms — log X, linear Y
+    // Log scale: add headroom in log space for labels/markers above highest peak,
+    // and set floor at dynamic range limit below max
+    if (logAmpScale) {
+      // ~6 dB headroom above max so labels fit (peak marker + text ≈ 22px on 200px plot ≈ 11%)
+      ampMax = ampMax * Math.pow(10, 6 / 20);
+    }
+    const ampFloor = logAmpScale ? ampMax * Math.pow(10, -LOG_DYNAMIC_RANGE_DB / 20) : 0;
+    const ampMin = logAmpScale ? ampFloor : 0;
+
+    // Coordinate transforms — log X
     const logFMin = Math.log10(Math.max(viewFMin, SPECTRUM_MIN_FREQ));
     const logFMax = Math.log10(Math.max(viewFMax, SPECTRUM_MIN_FREQ));
     const logRange = logFMax - logFMin;
@@ -90,8 +102,20 @@ export default function useSpectrumData({
       return Math.pow(10, logFMin + (x / width) * logRange);
     }
 
-    function ampToY(a) {
-      return ((ampMax - a) / (ampMax - ampMin)) * height;
+    // Y transform: linear or log amplitude
+    let ampToY;
+    if (logAmpScale) {
+      const logMax = Math.log10(ampMax);
+      const logMin = Math.log10(ampFloor);
+      const logAmpRange = logMax - logMin;
+      ampToY = (a) => {
+        const clamped = Math.max(a, ampFloor);
+        return ((logMax - Math.log10(clamped)) / logAmpRange) * height;
+      };
+    } else {
+      ampToY = (a) => {
+        return ((ampMax - a) / ampMax) * height;
+      };
     }
 
     return {
@@ -103,8 +127,9 @@ export default function useSpectrumData({
       xToFreq,
       ampToY,
       visibleCount: endIdx - startIdx,
+      logAmpScale,
     };
-  }, [freqs, amplitude, viewFMin, viewFMax, width, height, lockedAmpMax]);
+  }, [freqs, amplitude, viewFMin, viewFMax, width, height, lockedAmpMax, logAmpScale]);
 }
 
 /**

@@ -104,7 +104,7 @@ set_status_callback(_js_status_callback)
     globalThis.__pyodide = _pyodide;
     globalThis.__pyodideReady = true;
     globalThis.__pyodideInitPromise = _initPromise;
-    _onStatus?.('Python runtime ready');
+    _onStatus?.('Ready');
   } catch (err) {
     _onError?.(
       'Failed to initialize Python runtime',

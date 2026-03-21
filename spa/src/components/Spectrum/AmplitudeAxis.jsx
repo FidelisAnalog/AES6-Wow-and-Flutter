@@ -7,27 +7,20 @@ import { useTheme } from '@mui/material/styles';
 
 const AXIS_WIDTH = 52;
 
-export default function AmplitudeAxis({ ampMax, height }) {
+export default function AmplitudeAxis({ ampMin = 0, ampMax, height, logScale = false }) {
   const theme = useTheme();
   const textColor = theme.palette.text.secondary;
 
   if (!height || ampMax <= 0) return null;
 
-  const rawStep = ampMax / 5;
-  const step = niceNum(rawStep);
-
-  const ticks = [];
-  let val = 0;
-  while (val <= ampMax) {
-    const y = ((ampMax - val) / ampMax) * height;
-    ticks.push({ val, y });
-    val += step;
-  }
+  const ticks = logScale
+    ? logTicks(ampMin, ampMax, height)
+    : linearTicks(ampMax, height);
 
   return (
     <svg width={AXIS_WIDTH} height={height} style={{ display: 'block', overflow: 'visible' }}>
-      {ticks.map(({ val, y }) => (
-        <g key={val}>
+      {ticks.map(({ label, y }, i) => (
+        <g key={i}>
           <line x1={AXIS_WIDTH - 6} y1={y} x2={AXIS_WIDTH} y2={y} stroke={textColor} strokeWidth={1} opacity={0.4} />
           <text
             x={AXIS_WIDTH - 10}
@@ -37,12 +30,44 @@ export default function AmplitudeAxis({ ampMax, height }) {
             fontSize={11}
             fontFamily="monospace"
           >
-            {formatAmp(val, step)}
+            {label}
           </text>
         </g>
       ))}
     </svg>
   );
+}
+
+function linearTicks(ampMax, height) {
+  const rawStep = ampMax / 5;
+  const step = niceNum(rawStep);
+  const ticks = [];
+  let val = 0;
+  while (val <= ampMax) {
+    const y = ((ampMax - val) / ampMax) * height;
+    ticks.push({ label: formatAmp(val, step), y });
+    val += step;
+  }
+  return ticks;
+}
+
+function logTicks(ampMin, ampMax, height) {
+  const logMax = Math.log10(ampMax);
+  const logMin = Math.log10(Math.max(ampMin, 1e-20));
+  const logRange = logMax - logMin;
+  if (logRange <= 0) return [];
+
+  const ticks = [];
+  // dB ticks relative to max: 0, -10, -20, -30, ...
+  for (let db = 0; db >= -80; db -= 10) {
+    const val = ampMax * Math.pow(10, db / 20);
+    if (val < ampMin * 0.9) break;
+    const y = ((logMax - Math.log10(val)) / logRange) * height;
+    if (y >= -5 && y <= height + 5) {
+      ticks.push({ label: `${db} dB`, y });
+    }
+  }
+  return ticks;
 }
 
 function formatAmp(val, step) {

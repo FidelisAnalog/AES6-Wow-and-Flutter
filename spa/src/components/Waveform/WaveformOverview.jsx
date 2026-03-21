@@ -306,7 +306,6 @@ const WaveformOverview = React.memo(function WaveformOverview({
         WebkitTapHighlightColor: 'transparent',
         borderRadius: '4px 4px 0 0',
         border: `1px solid ${theme.palette.divider}`,
-        borderBottom: 'none',
         overflow: 'hidden',
         minHeight: OVERVIEW_HEIGHT,
         touchAction: 'none',

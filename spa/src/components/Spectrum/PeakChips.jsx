@@ -40,7 +40,7 @@ export default function PeakChips({ peaks = [], selectedPeakIndices = [], onTogg
               sx={{
                 flexShrink: 0,
                 backgroundColor: color,
-                color: '#fff',
+                color: 'common.white',
                 '&:hover': { backgroundColor: color, opacity: 0.9 },
                 fontFamily: 'monospace',
                 fontSize: '0.75rem',
