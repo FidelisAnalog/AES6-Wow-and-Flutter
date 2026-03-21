@@ -489,6 +489,8 @@ if __name__ == '__main__':
                         help='Number of motor poles')
     parser.add_argument('--rpm', type=float, default=33.333,
                         help='Turntable RPM (default: 33.333)')
+    parser.add_argument('--drive-ratio', type=float, default=1.0,
+                        help='Motor-to-platter speed ratio (default: 1.0 = direct drive)')
     parser.add_argument('--polar-revs', type=int, default=2,
                         help='Number of revolutions in polar plot (default: 2)')
     parser.add_argument('--lissajous-freq', type=float, default=None,
@@ -499,7 +501,8 @@ if __name__ == '__main__':
 
     results = analyze(args.input, rpm=args.rpm,
                       motor_slots=args.motor_slots,
-                      motor_poles=args.motor_poles)
+                      motor_poles=args.motor_poles,
+                      drive_ratio=args.drive_ratio)
     plot_results(results, motor_slots=args.motor_slots,
                  motor_poles=args.motor_poles, rpm=args.rpm,
                  polar_revs=args.polar_revs)
