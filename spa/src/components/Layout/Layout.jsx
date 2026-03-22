@@ -17,7 +17,7 @@ export default function Layout({ children }) {
         minHeight: '100vh',
         maxWidth: 900,
         mx: 'auto',
-        px: embed ? 0 : 3,
+        px: embed ? 0 : { xs: 1, sm: 3 },
         py: embed ? 0 : 2,
       }}
     >

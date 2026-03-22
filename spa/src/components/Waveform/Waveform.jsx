@@ -240,7 +240,7 @@ export default function Waveform({
   if (!hasData) return null;
 
   return (
-    <Paper sx={{ p: 2, pb: 0, width: '100%', overflow: 'hidden' }}>
+    <Paper sx={{ p: { xs: 1, sm: 2 }, pb: 0, width: '100%', overflow: 'hidden' }}>
       {/* Overview bar — above main view */}
       <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <WaveformOverview

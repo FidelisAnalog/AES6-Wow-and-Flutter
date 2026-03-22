@@ -186,7 +186,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
               {activeTab === 'histogram' && (
                 <Box sx={{ display: 'flex', width: '100%', height: '100%', boxSizing: 'border-box' }}>
                   <Box sx={{ width: CONTROLS_W, flexShrink: 0 }} />
-                  <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end', pr: 2, pt: 1 }}>
+                  <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end', pr: { xs: 1, sm: 2 }, pt: 1 }}>
                     {plotCache.histogram && squareSize > 0 && (
                       <HistogramPlot data={plotCache.histogram} width={squareSize} height={squareSize} />
                     )}
@@ -200,7 +200,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
                   <Box sx={{ width: CONTROLS_W, flexShrink: 0, p: isMobile ? 1 : 2, display: 'flex', flexDirection: 'column', gap: 1, boxSizing: 'border-box' }}>
                     <PolarControls available={available} revolutions={polarRevs} onRevsChange={handleRevsChange} plotData={plotCache.polar} />
                   </Box>
-                  <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end', pr: 2, pt: 1 }}>
+                  <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end', pr: { xs: 1, sm: 2 }, pt: 1 }}>
                     {plotCache.polar && squareSize > 0 && (
                       <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} />
                     )}

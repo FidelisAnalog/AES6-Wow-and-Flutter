@@ -244,7 +244,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
   if (!hasData) return null;
 
   return (
-    <Paper sx={{ p: 2, pb: 0, width: '100%', overflow: 'hidden' }}>
+    <Paper sx={{ p: { xs: 1, sm: 2 }, pb: 0, width: '100%', overflow: 'hidden' }}>
       {/* Overview bar */}
       <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <SpectrumOverview
