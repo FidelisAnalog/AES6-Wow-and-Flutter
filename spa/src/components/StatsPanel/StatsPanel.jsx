@@ -87,6 +87,10 @@ export default function StatsPanel({ result, processing, duration, audioInfo }) 
   );
 }
 
+function fmtSR(sr) {
+  return sr >= 1000 ? `${sr / 1000}k` : `${sr}`;
+}
+
 function FileHeader({ audioInfo }) {
   const {
     fileName, sampleRate, channels, duration,
@@ -100,8 +104,8 @@ function FileHeader({ audioInfo }) {
           {fileName}
         </Typography>
         <Typography variant="body2" color="text.secondary" component="span" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-          {sampleRate} Hz | {channels}ch | {duration.toFixed(2)}s
-          {wasDownsampled && ` (from ${originalSampleRate} Hz)`}
+          {fmtSR(sampleRate)} | {channels}ch | {duration.toFixed(2)}s
+          {wasDownsampled && ` (from ${fmtSR(originalSampleRate)})`}
         </Typography>
       </Box>
       {wasTruncated && (

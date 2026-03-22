@@ -16,11 +16,11 @@ import { getPlotData } from '../../services/pyBridge.js';
 import useResizableHeight from '../ResizeHandle.jsx';
 
 
-const TAB_DEFS_BASE = [
-  { id: 'advanced', label: 'Config' },
-  { id: 'histogram', label: 'Histogram' },
-];
 const TAB_POLAR = { id: 'polar', label: 'Polar' };
+const TAB_DEFS_BASE = [
+  { id: 'histogram', label: 'Histogram' },
+  { id: 'advanced', label: 'Config' },
+];
 // { id: 'lissajous', label: 'Lissajous' },
 
 const DEFAULT_POLAR_REVS = 2;
@@ -45,7 +45,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
 
   const hasRpm = rpmInfo?.value != null;
   const tabs = useMemo(() =>
-    hasRpm ? [...TAB_DEFS_BASE, TAB_POLAR] : TAB_DEFS_BASE,
+    hasRpm ? [TAB_POLAR, ...TAB_DEFS_BASE] : TAB_DEFS_BASE,
     [hasRpm]
   );
 

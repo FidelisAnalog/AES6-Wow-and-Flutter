@@ -11,7 +11,7 @@ export const MIN_MEASUREMENT_SECONDS = 5;
 export const MIN_DRIFT_SECONDS = 20;
 
 /** Minimum sample rate we accept */
-export const MIN_SAMPLE_RATE = 44100;
+export const MIN_SAMPLE_RATE = 22050;
 
 /** Downsample targets based on detected carrier frequency */
 export const DOWNSAMPLE_THRESHOLDS = {
