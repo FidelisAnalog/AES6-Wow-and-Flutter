@@ -58,7 +58,7 @@ export default function StatsPanel({ result, processing, duration, audioInfo }) 
   const showDrift = duration != null && duration >= MIN_DRIFT_SECONDS;
 
   return (
-    <Paper sx={{ p: 1.5, px: 2, opacity: processing ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+    <Paper sx={{ p: 1.5, px: { xs: 1, sm: 2 }, opacity: processing ? 0.5 : 1, transition: 'opacity 0.2s' }}>
       {/* Line 1: File info */}
       {audioInfo && <FileHeader audioInfo={audioInfo} />}
 

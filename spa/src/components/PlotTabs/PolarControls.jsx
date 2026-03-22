@@ -21,7 +21,7 @@ export default function PolarControls({ available, revolutions, onRevsChange, pl
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {/* Revs dropdown */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 35 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 35, display: { xs: 'none', sm: 'block' } }}>
           Revs
         </Typography>
         <Select
@@ -29,12 +29,12 @@ export default function PolarControls({ available, revolutions, onRevsChange, pl
           value={Math.min(revolutions, maxRevs)}
           onChange={(e) => onRevsChange(e.target.value)}
           sx={{
-            width: 70,
-            height: 28,
+            width: { xs: 52, sm: 70 },
+            height: { xs: 24, sm: 28 },
             fontFamily: 'monospace',
-            fontSize: '0.8rem',
+            fontSize: { xs: '0.7rem', sm: '0.8rem' },
             '& .MuiSelect-select': {
-              padding: '4px 24px 4px 8px',
+              padding: { xs: '2px 20px 2px 6px', sm: '4px 24px 4px 8px' },
             },
           }}
         >
@@ -46,17 +46,17 @@ export default function PolarControls({ available, revolutions, onRevsChange, pl
 
       {/* Legend — aligned with dropdown left edge */}
       {numRevs > 0 && (
-        <Box sx={{ mt: 3, ml: '47px', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+        <Box sx={{ mt: { xs: 1.5, sm: 3 }, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: { xs: 0.25, sm: 0.5 } }}>
           {Array.from({ length: numRevs }, (_, i) => (
-            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <Box sx={{
-                width: 20,
+                width: { xs: 12, sm: 20 },
                 height: 2,
                 backgroundColor: PLOTLY_COLORS[i % PLOTLY_COLORS.length],
                 flexShrink: 0,
               }} />
-              <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                Rev {i + 1}
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: { xs: '0.6rem', sm: '0.75rem' }, whiteSpace: 'nowrap' }}>
+                {i + 1}
               </Typography>
             </Box>
           ))}

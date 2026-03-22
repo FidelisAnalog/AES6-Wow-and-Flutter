@@ -116,7 +116,7 @@ export default function PolarPlot({ data, width, height }) {
         plot_bgcolor: wf.background,
         font: { color: textColor, family: 'monospace' },
         showlegend: false,
-        margin: { t: 20, b: 30, l: 20, r: 20 },
+        margin: { t: 35, b: 35, l: 35, r: 35 },
         width,
         height,
         annotations: [{
