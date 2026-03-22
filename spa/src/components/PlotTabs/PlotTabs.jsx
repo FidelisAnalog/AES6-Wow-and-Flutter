@@ -4,7 +4,7 @@
  * Polar auto-plots 2 revs when RPM is known.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Paper, Tabs, Tab, Box, Typography, IconButton } from '@mui/material';
 import RemoveIcon from '@mui/icons-material/Remove';
 import AdvancedPanel from './AdvancedPanel.jsx';
@@ -30,12 +30,12 @@ function PolarLegend({ revolutions }) {
   );
 }
 
-const TAB_DEFS = [
-  { id: 'advanced', label: 'Advanced' },
+const TAB_DEFS_BASE = [
+  { id: 'advanced', label: 'Config' },
   { id: 'histogram', label: 'Histogram' },
-  { id: 'polar', label: 'Polar' },
-  // { id: 'lissajous', label: 'Lissajous' },
 ];
+const TAB_POLAR = { id: 'polar', label: 'Polar' };
+// { id: 'lissajous', label: 'Lissajous' },
 
 const DEFAULT_POLAR_REVS = 2;
 
@@ -48,7 +48,11 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
   const prevAvailableRef = useRef(null);
   const polarRevsRef = useRef(DEFAULT_POLAR_REVS);
 
-  const tabs = TAB_DEFS;
+  const hasRpm = rpmInfo?.value != null;
+  const tabs = useMemo(() =>
+    hasRpm ? [...TAB_DEFS_BASE, TAB_POLAR] : TAB_DEFS_BASE,
+    [hasRpm]
+  );
 
   // Reset plot cache and collapse when available changes (new file)
   useEffect(() => {
