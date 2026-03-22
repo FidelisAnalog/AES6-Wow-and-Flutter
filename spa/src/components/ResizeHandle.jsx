@@ -21,7 +21,6 @@ function ResizeBarComponent({ onPointerDown, onDoubleClick }) {
     <Box
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
-      onTouchStart={(e) => e.preventDefault()}
       sx={{
         width: '100%',
         height: BAR_HEIGHT,
@@ -76,35 +75,55 @@ export default function useResizableHeight(storageKey, defaultHeight, maxHeight)
   const heightRef = useRef(plotHeight);
   heightRef.current = plotHeight;
 
+  const TOUCH_DWELL_MS = 200;
+
   const handlePointerDown = useCallback((e) => {
     const startY = e.clientY;
     const startHeight = heightRef.current;
     const target = e.target;
+    const isTouch = e.pointerType === 'touch';
     let dragging = false;
+    let dwellPassed = !isTouch; // mouse skips dwell
+    let dwellTimer = null;
+    let cancelled = false;
+
+    if (isTouch) {
+      dwellTimer = setTimeout(() => { dwellPassed = true; }, TOUCH_DWELL_MS);
+    }
 
     const onMove = (ev) => {
-      if (!dragging && Math.abs(ev.clientY - startY) < 3) return;
+      if (cancelled) return;
+      const dy = ev.clientY - startY;
+      // Touch: if moved before dwell, cancel — let page scroll
+      if (isTouch && !dwellPassed && Math.abs(dy) > 3) {
+        cancelled = true;
+        clearTimeout(dwellTimer);
+        cleanup();
+        return;
+      }
+      if (!dwellPassed) return;
+      if (!dragging && Math.abs(dy) < 3) return;
       if (!dragging) {
         dragging = true;
         target.setPointerCapture(e.pointerId);
       }
-      const dy = ev.clientY - startY;
       const newHeight = Math.max(MIN_HEIGHT, Math.min(maxRef.current, startHeight + dy));
       setPlotHeight(newHeight);
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       if (dragging) {
         try { localStorage.setItem(storageKey, String(Math.round(heightRef.current))); } catch {}
       }
       document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('pointercancel', onUp);
+      document.removeEventListener('pointerup', cleanup);
+      document.removeEventListener('pointercancel', cleanup);
+      clearTimeout(dwellTimer);
     };
 
     document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
+    document.addEventListener('pointerup', cleanup);
+    document.addEventListener('pointercancel', cleanup);
   }, [storageKey]);
 
   const handleDoubleClick = useCallback(() => {

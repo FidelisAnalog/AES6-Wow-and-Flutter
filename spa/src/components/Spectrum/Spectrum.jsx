@@ -279,7 +279,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
             userSelect: 'none',
             WebkitTapHighlightColor: 'transparent',
             overscrollBehaviorX: 'none',
-            touchAction: 'none',
+            touchAction: 'pan-y',
             cursor: 'pointer',
             border: `1px solid ${theme.palette.divider}`,
             borderTop: 'none',
@@ -296,7 +296,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
                 overflowY: 'hidden',
                 overscrollBehaviorX: 'none',
                 WebkitOverflowScrolling: 'touch',
-                touchAction: isZoomed ? 'pan-x' : 'none',
+                touchAction: isZoomed ? 'pan-x pan-y' : 'pan-y',
                 scrollbarWidth: 'none',
                 '&::-webkit-scrollbar': { display: 'none' },
               }}

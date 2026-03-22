@@ -34,9 +34,11 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
   const [minimized, setMinimized] = useState(true);
   const containerRef = useRef(null);
   // Max card height = max square plot + overhead (tab bar + resize bar + padding)
-  const CONTROLS_W = 160;
+  const isMobile = containerWidth > 0 && containerWidth < 600;
+  const CONTROLS_W = isMobile ? 80 : 160;
+  const PLOT_MARGINS = isMobile ? 24 : 48; // left margin + right margin
   const OVERHEAD = 78;
-  const maxPlotSquare = Math.max(200, containerWidth - CONTROLS_W - 48);
+  const maxPlotSquare = Math.max(200, containerWidth - CONTROLS_W - PLOT_MARGINS);
   const maxTabHeight = maxPlotSquare + OVERHEAD;
   const { plotHeight: tabHeightStored, ResizeBar } = useResizableHeight(STORAGE_KEY_TAB_HEIGHT, DEFAULT_TAB_HEIGHT, maxTabHeight);
   const tabHeight = Math.min(tabHeightStored, maxTabHeight);
@@ -164,9 +166,13 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
             // Available height for plot content
             const contentHeight = tabHeight - OVERHEAD;
             const plotSize = Math.max(100, contentHeight);
-            // Right margin = card padding (16px), left margin of plot = 2× that
-            const PLOT_LEFT_MARGIN = 32;
-            const plotWidth = Math.max(100, containerWidth - CONTROLS_W - PLOT_LEFT_MARGIN - 16);
+            // Right margin = card padding (16px), left margin of plot = 2× that (shrink on mobile)
+            const PLOT_LEFT_MARGIN = isMobile ? 8 : 32;
+            const PLOT_RIGHT_MARGIN = 16;
+            // containerWidth is the full card inner width. Plot area = containerWidth - CONTROLS_W.
+            // Within the plot area, we have left margin + plot + right margin.
+            const plotAreaWidth = containerWidth - CONTROLS_W;
+            const plotWidth = Math.max(100, plotAreaWidth - PLOT_LEFT_MARGIN - PLOT_RIGHT_MARGIN);
             // Square: use the smaller of available height and width
             const squareSize = Math.min(plotSize, plotWidth);
 
@@ -191,7 +197,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
               {/* Polar */}
               {activeTab === 'polar' && (
                 <Box sx={{ display: 'flex', width: '100%', height: '100%', boxSizing: 'border-box' }}>
-                  <Box sx={{ width: CONTROLS_W, flexShrink: 0, p: 2, display: 'flex', flexDirection: 'column', gap: 1, boxSizing: 'border-box' }}>
+                  <Box sx={{ width: CONTROLS_W, flexShrink: 0, p: isMobile ? 1 : 2, display: 'flex', flexDirection: 'column', gap: 1, boxSizing: 'border-box' }}>
                     <PolarControls available={available} revolutions={polarRevs} onRevsChange={handleRevsChange} plotData={plotCache.polar} />
                   </Box>
                   <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end', pr: 2, pt: 1 }}>
