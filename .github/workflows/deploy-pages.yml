@@ -2,20 +2,8 @@ name: Deploy to myhi.fi
 
 on:
   push:
-    branches:
-      - production
-      - test
-      - preview
+    branches: [production, test, preview]
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to deploy'
-        required: true
-        type: choice
-        options:
-          - production
-          - test
-          - preview
 
 concurrency:
   group: deploy-myhi-fi
@@ -25,44 +13,81 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Determine deploy path
-        id: path
-        run: |
-          BRANCH="${GITHUB_REF#refs/heads/}"
-          if [ "$BRANCH" = "production" ]; then
-            echo "dest=wow" >> "$GITHUB_OUTPUT"
-            echo "base=/wow/" >> "$GITHUB_OUTPUT"
-          elif [ "$BRANCH" = "test" ]; then
-            echo "dest=wow/test" >> "$GITHUB_OUTPUT"
-            echo "base=/wow/test/" >> "$GITHUB_OUTPUT"
-          elif [ "$BRANCH" = "preview" ]; then
-            echo "dest=wow/preview" >> "$GITHUB_OUTPUT"
-            echo "base=/wow/preview/" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install and build
-        working-directory: spa
+      # Build production → output/wow/
+      - uses: actions/checkout@v4
+        with:
+          ref: production
+          path: prod-src
+      - name: Build production
         run: |
-          npm ci
-          npx vite build --base ${{ steps.path.outputs.base }}
+          cd prod-src/spa && npm ci && npx vite build --base /wow/
+          mkdir -p $GITHUB_WORKSPACE/output/wow
+          cp -r dist/* $GITHUB_WORKSPACE/output/wow/
+          mkdir -p $GITHUB_WORKSPACE/output/wow/python
+          cp $GITHUB_WORKSPACE/prod-src/wf_core.py $GITHUB_WORKSPACE/output/wow/python/wf_core.py
 
-      - name: Copy wf_core.py to dist
+      # Build test → output/wow/test/ (skip if branch doesn't exist)
+      - name: Check for test branch
+        id: check-test
         run: |
-          mkdir -p spa/dist/python
-          cp wf_core.py spa/dist/python/wf_core.py
+          if git ls-remote --heads origin test | grep -q test; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        working-directory: prod-src
 
+      - uses: actions/checkout@v4
+        if: steps.check-test.outputs.exists == 'true'
+        with:
+          ref: test
+          path: test-src
+
+      - name: Build test
+        if: steps.check-test.outputs.exists == 'true'
+        run: |
+          cd test-src/spa && npm ci && npx vite build --base /wow/test/
+          mkdir -p $GITHUB_WORKSPACE/output/wow/test
+          cp -r dist/* $GITHUB_WORKSPACE/output/wow/test/
+          mkdir -p $GITHUB_WORKSPACE/output/wow/test/python
+          cp $GITHUB_WORKSPACE/test-src/wf_core.py $GITHUB_WORKSPACE/output/wow/test/python/wf_core.py
+
+      # Build preview → output/wow/preview/ (skip if branch doesn't exist)
+      - name: Check for preview branch
+        id: check-preview
+        run: |
+          if git ls-remote --heads origin preview | grep -q preview; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        working-directory: prod-src
+
+      - uses: actions/checkout@v4
+        if: steps.check-preview.outputs.exists == 'true'
+        with:
+          ref: preview
+          path: preview-src
+
+      - name: Build preview
+        if: steps.check-preview.outputs.exists == 'true'
+        run: |
+          cd preview-src/spa && npm ci && npx vite build --base /wow/preview/
+          mkdir -p $GITHUB_WORKSPACE/output/wow/preview
+          cp -r dist/* $GITHUB_WORKSPACE/output/wow/preview/
+          mkdir -p $GITHUB_WORKSPACE/output/wow/preview/python
+          cp $GITHUB_WORKSPACE/preview-src/wf_core.py $GITHUB_WORKSPACE/output/wow/preview/python/wf_core.py
+
+      # Deploy everything atomically
       - name: Deploy to pages repo
         uses: peaceiris/actions-gh-pages@v4
         with:
           personal_token: ${{ secrets.PAGES_DEPLOY_TOKEN }}
           external_repository: FidelisAnalog/myhi.fi
-          publish_dir: spa/dist
-          destination_dir: ${{ steps.path.outputs.dest }}
-          keep_files: true
+          publish_dir: output
+          keep_files: false
           cname: myhi.fi
