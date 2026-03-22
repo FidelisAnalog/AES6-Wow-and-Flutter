@@ -582,7 +582,7 @@ def _detect_rpm(spectrum_freqs, spectrum_amp, duration):
     if median_noise <= 0:
         return no_detect
 
-    best_snr = 0
+    best_score = 0
     best_result = None
 
     for nominal_rpm, nominal_frot in _STANDARD_SPEEDS:
@@ -593,9 +593,11 @@ def _detect_rpm(spectrum_freqs, spectrum_amp, duration):
         peak_amp = float(max(amp[bin_idx - 1], amp[bin_idx], amp[bin_idx + 1]))
         peak_bin = bin_idx + int(np.argmax(amp[bin_idx - 1:bin_idx + 2])) - 1
         snr = peak_amp / median_noise
+        closeness = 1.0 - abs(float(freqs[peak_bin]) - nominal_frot) / nominal_frot
+        score = snr * max(closeness, 0.0)
 
-        if snr >= _RPM_STD_LOW_SNR and snr > best_snr:
-            best_snr = snr
+        if snr >= _RPM_STD_LOW_SNR and score > best_score:
+            best_score = score
             confidence = min(1.0, snr / _RPM_HIGH_SNR)
             best_result = {
                 'value': nominal_rpm,
