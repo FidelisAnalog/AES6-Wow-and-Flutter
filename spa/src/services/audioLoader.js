@@ -436,14 +436,22 @@ export async function loadAudioFromUrl(url) {
   const fetchUrl = fixDropboxUrl(url);
   const fileName = filenameFromUrl(url);
 
-  const resp = await fetch(fetchUrl);
-  if (!resp.ok) {
-    throw new Error(`Failed to fetch file: ${resp.status} ${resp.statusText}`);
-  }
-
-  const buffer = await resp.arrayBuffer();
-  if (buffer.byteLength === 0) {
-    throw new Error('Fetched file is empty');
+  let buffer;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const resp = await fetch(fetchUrl);
+      if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+      buffer = await resp.arrayBuffer();
+      if (buffer.byteLength === 0) throw new Error('Fetched file is empty');
+      break;
+    } catch (err) {
+      if (attempt < 2) {
+        console.warn(`[audioLoader] Fetch attempt ${attempt + 1} failed: ${err.message}, retrying...`);
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      throw new Error(`Failed to fetch file after 3 attempts: ${err.message}`);
+    }
   }
 
   const raw = await decodeBuffer(buffer, fileName);
