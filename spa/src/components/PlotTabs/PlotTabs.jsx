@@ -13,22 +13,8 @@ import PolarPlot from './PolarPlot.jsx';
 import PolarControls from './PolarControls.jsx';
 import { PEAK_COLORS } from '../Spectrum/peakColors.js';
 import { getPlotData } from '../../services/pyBridge.js';
+import useResizableHeight from '../ResizeHandle.jsx';
 
-/** Revolution legend — colored lines with labels, rendered outside the Plotly canvas. */
-function PolarLegend({ revolutions }) {
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-      {revolutions.map((_, i) => (
-        <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box sx={{ width: 16, height: 3, bgcolor: PEAK_COLORS[i % PEAK_COLORS.length], borderRadius: 1 }} />
-          <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-            Rev {i + 1}
-          </Typography>
-        </Box>
-      ))}
-    </Box>
-  );
-}
 
 const TAB_DEFS_BASE = [
   { id: 'advanced', label: 'Config' },
@@ -38,6 +24,8 @@ const TAB_POLAR = { id: 'polar', label: 'Polar' };
 // { id: 'lissajous', label: 'Lissajous' },
 
 const DEFAULT_POLAR_REVS = 2;
+const DEFAULT_TAB_HEIGHT = 640;
+const STORAGE_KEY_TAB_HEIGHT = 'plotTabsHeight';
 
 export default function PlotTabs({ available, processing, onReanalyze, currentOpts, rpmInfo }) {
   const [activeTab, setActiveTab] = useState(null);
@@ -45,8 +33,16 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
   const [containerWidth, setContainerWidth] = useState(0);
   const [minimized, setMinimized] = useState(true);
   const containerRef = useRef(null);
+  // Max card height = max square plot + overhead (tab bar + resize bar + padding)
+  const CONTROLS_W = 160;
+  const OVERHEAD = 78;
+  const maxPlotSquare = Math.max(200, containerWidth - CONTROLS_W - 48);
+  const maxTabHeight = maxPlotSquare + OVERHEAD;
+  const { plotHeight: tabHeightStored, ResizeBar } = useResizableHeight(STORAGE_KEY_TAB_HEIGHT, DEFAULT_TAB_HEIGHT, maxTabHeight);
+  const tabHeight = Math.min(tabHeightStored, maxTabHeight);
+
   const prevAvailableRef = useRef(null);
-  const polarRevsRef = useRef(DEFAULT_POLAR_REVS);
+  const [polarRevs, setPolarRevs] = useState(DEFAULT_POLAR_REVS);
 
   const hasRpm = rpmInfo?.value != null;
   const tabs = useMemo(() =>
@@ -60,6 +56,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
       const isNewFile = !prevAvailableRef.current && available;
       prevAvailableRef.current = available;
       setPlotCache({});
+      setPolarRevs(DEFAULT_POLAR_REVS);
       if (isNewFile) {
         setActiveTab(null);
         setMinimized(true);
@@ -68,10 +65,14 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
   }, [available]);
 
   // Auto-re-plot polar when available changes (re-measure) and polar tab is open
+  // Clamp revs to new max if needed
   useEffect(() => {
     if (activeTab !== 'polar' || !available?.polar) return;
+    const maxRevs = available.polar.max_revolutions ?? 10;
+    const revs = Math.min(polarRevs, maxRevs);
+    if (revs !== polarRevs) setPolarRevs(revs);
     try {
-      const data = getPlotData('polar', { revolutions: polarRevsRef.current });
+      const data = getPlotData('polar', { revolutions: revs });
       if (data) setPlotCache(prev => ({ ...prev, polar: data }));
     } catch (e) {
       console.warn('[PlotTabs] polar auto-replot failed:', e);
@@ -89,10 +90,10 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
     return () => observer.disconnect();
   }, [available, minimized]);
 
-  const fetchPolar = useCallback((revs) => {
-    const n = typeof revs === 'object' ? revs.revolutions : revs;
+  const handleRevsChange = useCallback((revs) => {
+    const n = Number(revs);
     if (!available?.polar || !n) return;
-    polarRevsRef.current = n;
+    setPolarRevs(n);
     try {
       const data = getPlotData('polar', { revolutions: n });
       if (data) setPlotCache(prev => ({ ...prev, polar: data }));
@@ -119,9 +120,9 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
 
     // Auto-plot polar when RPM is known
     if (tabId === 'polar' && available?.polar && !plotCache.polar) {
-      fetchPolar(DEFAULT_POLAR_REVS);
+      handleRevsChange(polarRevs);
     }
-  }, [tabs, plotCache, available, fetchPolar]);
+  }, [tabs, plotCache, available, handleRevsChange, polarRevs]);
 
   const handleMinimize = useCallback(() => {
     setMinimized(true);
@@ -133,7 +134,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+    <Paper sx={{ width: '100%', overflow: 'hidden', ...(minimized ? {} : { height: tabHeight, display: 'flex', flexDirection: 'column' }) }}>
       <Box sx={{ display: 'flex', alignItems: 'center' }}>
         <Tabs
           value={activeIndex >= 0 ? activeIndex : false}
@@ -158,49 +159,53 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
       </Box>
 
       {!minimized && (
-        <Box ref={containerRef} sx={{ width: '100%' }}>
+        <Box ref={containerRef} sx={{ width: '100%', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+          {(() => {
+            // Available height for plot content
+            const contentHeight = tabHeight - OVERHEAD;
+            const plotSize = Math.max(100, contentHeight);
+            // Right margin = card padding (16px), left margin of plot = 2× that
+            const PLOT_LEFT_MARGIN = 32;
+            const plotWidth = Math.max(100, containerWidth - CONTROLS_W - PLOT_LEFT_MARGIN - 16);
+            // Square: use the smaller of available height and width
+            const squareSize = Math.min(plotSize, plotWidth);
 
-          {/* Advanced config */}
-          {activeTab === 'advanced' && (
-            <AdvancedPanel currentOpts={currentOpts} onReanalyze={onReanalyze} rpmInfo={rpmInfo} />
-          )}
+            return <>
+              {/* Advanced config */}
+              {activeTab === 'advanced' && (
+                <AdvancedPanel currentOpts={currentOpts} onReanalyze={onReanalyze} rpmInfo={rpmInfo} />
+              )}
 
-          {/* Histogram */}
-          {activeTab === 'histogram' && (() => {
-            const plotW = Math.floor(containerWidth * 2 / 3);
-            return (
-              <Box sx={{ display: 'flex', width: '100%', pr: 2, pt: 2, pb: 2, boxSizing: 'border-box' }}>
-                <Box sx={{ width: '33.33%' }} />
-                <Box sx={{ flex: 1 }}>
-                  {plotCache.histogram && plotW > 0 && (
-                    <HistogramPlot data={plotCache.histogram} width={plotW} height={plotW} />
-                  )}
+              {/* Histogram */}
+              {activeTab === 'histogram' && (
+                <Box sx={{ display: 'flex', width: '100%', height: '100%', boxSizing: 'border-box' }}>
+                  <Box sx={{ width: CONTROLS_W, flexShrink: 0 }} />
+                  <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end', pr: 2, pt: 1 }}>
+                    {plotCache.histogram && squareSize > 0 && (
+                      <HistogramPlot data={plotCache.histogram} width={squareSize} height={squareSize} />
+                    )}
+                  </Box>
                 </Box>
-              </Box>
-            );
-          })()}
+              )}
 
-          {/* Polar */}
-          {activeTab === 'polar' && (() => {
-            const polarSize = Math.floor(containerWidth * 2 / 3);
-            return (
-              <Box sx={{ display: 'flex', width: '100%', pr: 2, pt: 2, pb: 2, boxSizing: 'border-box' }}>
-                <Box sx={{ width: '33.33%', p: 2, display: 'flex', flexDirection: 'column', gap: 1, boxSizing: 'border-box' }}>
-                  <PolarControls available={available} onPlot={fetchPolar} />
-                  {plotCache.polar && (
-                    <PolarLegend revolutions={plotCache.polar.revolutions} />
-                  )}
+              {/* Polar */}
+              {activeTab === 'polar' && (
+                <Box sx={{ display: 'flex', width: '100%', height: '100%', boxSizing: 'border-box' }}>
+                  <Box sx={{ width: CONTROLS_W, flexShrink: 0, p: 2, display: 'flex', flexDirection: 'column', gap: 1, boxSizing: 'border-box' }}>
+                    <PolarControls available={available} revolutions={polarRevs} onRevsChange={handleRevsChange} plotData={plotCache.polar} />
+                  </Box>
+                  <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end', pr: 2, pt: 1 }}>
+                    {plotCache.polar && squareSize > 0 && (
+                      <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} />
+                    )}
+                  </Box>
                 </Box>
-                <Box sx={{ flex: 1, height: polarSize }}>
-                  {plotCache.polar && polarSize > 0 && (
-                    <PolarPlot data={plotCache.polar} width={polarSize} height={polarSize} />
-                  )}
-                </Box>
-              </Box>
-            );
+              )}
+            </>;
           })()}
         </Box>
       )}
+      {!minimized && <ResizeBar />}
     </Paper>
   );
 }

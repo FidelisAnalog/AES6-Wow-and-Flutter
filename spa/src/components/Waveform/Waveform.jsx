@@ -57,7 +57,7 @@ export default function Waveform({
   const theme = useTheme();
 
   // Resizable plot height — drag bottom border of card
-  const { plotHeight, containerProps: resizeProps } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
+  const { plotHeight, ResizeBar } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
   const totalHeight = plotHeight + TIMELINE_HEIGHT;
 
   // View state
@@ -240,7 +240,7 @@ export default function Waveform({
   if (!hasData) return null;
 
   return (
-    <Paper {...resizeProps} sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
+    <Paper sx={{ p: 2, pb: 0, width: '100%', overflow: 'hidden' }}>
       {/* Overview bar — above main view */}
       <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <WaveformOverview
@@ -420,6 +420,7 @@ export default function Waveform({
           </span>
         </Tooltip>
       </Box>
+      <ResizeBar />
     </Paper>
   );
 }
