@@ -316,7 +316,6 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
                   width={containerWidth}
                   height={plotHeight}
                   logAmpScale={logAmpScale}
-                  onTogglePeak={handleTogglePeak}
                   onResetZoom={resetZoom}
                 />
 
@@ -331,14 +330,14 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
         </Box>
       </Box>
 
-      {/* Peak chips */}
-      <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
+      {/* Peak chips — disabled, kept for future lissajous wiring */}
+      {/* <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <PeakChips
           peaks={peaks}
           selectedPeakIndices={selectedPeakIndices}
           onTogglePeak={handleTogglePeak}
         />
-      </Box>
+      </Box> */}
 
       {/* Toolbar — scale toggle + zoom controls */}
       <Box

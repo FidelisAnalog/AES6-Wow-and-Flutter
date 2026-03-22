@@ -133,6 +133,7 @@ export function isReady() { return _ready; }
  * Run full analysis on PCM data.
  * @param {Float32Array|Float64Array} pcmData
  * @param {number} sampleRate
+ * @param {object} [opts] - optional params: rpm, motor_slots, motor_poles, drive_ratio
  */
 const _ANALYSIS_PY = `
 import numpy as np
@@ -144,7 +145,8 @@ _worker_error = None
 try:
     _pcm = np.asarray(_pcm_data.to_py(), dtype=np.float64)
     _sr = int(_sample_rate)
-    _result = await analyzeFull(_pcm, _sr)
+    _opts = _json.loads(_analysis_opts) if _analysis_opts else {}
+    _result = await analyzeFull(_pcm, _sr, **{k: v for k, v in _opts.items() if v is not None})
 
     # Convert large numpy arrays in-place via .tolist() (C-level, fast).
     for _k in ('t', 'deviation_pct'):
@@ -170,7 +172,7 @@ try:
 except Exception as _e:
     _worker_error = _json.dumps({"message": str(_e), "traceback": _tb.format_exc()})
 finally:
-    del _pcm_data, _sample_rate
+    del _pcm_data, _sample_rate, _analysis_opts
     # Clean up intermediate variables to free WASM memory
     for _v in ('_pcm', '_sr', '_result', '_e'):
         if _v in dir():
@@ -180,7 +182,7 @@ finally:
 
 const MAX_RETRIES = 2;
 
-export async function analyzeFull(pcmData, sampleRate) {
+export async function analyzeFull(pcmData, sampleRate, opts = { rpm: 33.33 }) {
   if (!_ready || !_pyodideAlive()) {
     console.warn('[wf_core] Pyodide not ready or WASM evicted, reinitializing...');
     _onStatus?.('Reinitializing Python runtime...');
@@ -200,6 +202,7 @@ export async function analyzeFull(pcmData, sampleRate) {
     try {
       _pyodide.globals.set('_pcm_data', f64);
       _pyodide.globals.set('_sample_rate', sampleRate);
+      _pyodide.globals.set('_analysis_opts', JSON.stringify(opts));
 
       await _pyodide.runPythonAsync(_ANALYSIS_PY);
 
