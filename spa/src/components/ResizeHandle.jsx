@@ -21,6 +21,7 @@ function ResizeBarComponent({ onPointerDown, onDoubleClick }) {
     <Box
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
+      onTouchStart={(e) => e.preventDefault()}
       sx={{
         width: '100%',
         height: BAR_HEIGHT,
@@ -30,6 +31,9 @@ function ResizeBarComponent({ onPointerDown, onDoubleClick }) {
         alignItems: 'center',
         justifyContent: 'center',
         touchAction: 'none',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
         '&:hover > div, &:active > div': {
           opacity: 0.6,
         },
