@@ -15,7 +15,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
-import { Box, Paper, Button, IconButton, Tooltip, CircularProgress, useTheme } from '@mui/material';
+import { Box, Paper, Button, IconButton, Tooltip, CircularProgress, Typography, useTheme } from '@mui/material';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
@@ -259,7 +259,26 @@ export default function Waveform({
       </Box>
 
       {/* Main waveform area: Y-axis + scrollable canvas + handle overlays */}
-      <Box sx={{ display: 'flex', width: '100%' }}>
+      <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
+        {/* Y-axis label — rotated, positioned in card's left padding, centered on plot canvas */}
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{
+            position: 'absolute',
+            left: -14,
+            top: plotHeight / 2,
+            transform: 'rotate(-90deg) translateX(-50%)',
+            transformOrigin: '0 0',
+            whiteSpace: 'nowrap',
+            fontSize: '0.55rem',
+            opacity: 0.5,
+            letterSpacing: 0.3,
+            display: { xs: 'none', sm: 'block' },
+          }}
+        >
+          Speed Deviation (%)
+        </Typography>
         {/* Y-axis */}
         <DeviationAxis
           yMin={wfData.yMin}
