@@ -20,10 +20,7 @@ export default function PolarControls({ available, revolutions, onRevsChange, pl
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {/* Revs dropdown */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 35, display: { xs: 'none', sm: 'block' } }}>
-          Revs
-        </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
         <Select
           size="small"
           value={Math.min(revolutions, maxRevs)}

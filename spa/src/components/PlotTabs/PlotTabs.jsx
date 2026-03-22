@@ -11,16 +11,16 @@ import AdvancedPanel from './AdvancedPanel.jsx';
 import HistogramPlot from './HistogramPlot.jsx';
 import PolarPlot from './PolarPlot.jsx';
 import PolarControls from './PolarControls.jsx';
-import { PEAK_COLORS } from '../Spectrum/peakColors.js';
+import usePlotLayout from './usePlotLayout.js';
 import { getPlotData } from '../../services/pyBridge.js';
 import useResizableHeight from '../ResizeHandle.jsx';
 
 
-const TAB_DEFS_BASE = [
-  { id: 'advanced', label: 'Config' },
-  { id: 'histogram', label: 'Histogram' },
-];
 const TAB_POLAR = { id: 'polar', label: 'Polar' };
+const TAB_DEFS_BASE = [
+  { id: 'histogram', label: 'Histogram' },
+  { id: 'advanced', label: 'Config' },
+];
 // { id: 'lissajous', label: 'Lissajous' },
 
 const DEFAULT_POLAR_REVS = 2;
@@ -30,27 +30,22 @@ const STORAGE_KEY_TAB_HEIGHT = 'plotTabsHeight';
 export default function PlotTabs({ available, processing, onReanalyze, currentOpts, rpmInfo }) {
   const [activeTab, setActiveTab] = useState(null);
   const [plotCache, setPlotCache] = useState({});
-  const [containerWidth, setContainerWidth] = useState(0);
   const [minimized, setMinimized] = useState(true);
   const containerRef = useRef(null);
-  const plotAreaRef = useRef(null);
-  const [plotAreaWidth, setPlotAreaWidth] = useState(0);
-  const isMobile = containerWidth > 0 && containerWidth < 600;
-  const OVERHEAD = 78;
-  // Max square = actual measured plot area width (or estimate before first measure)
-  const maxPlotSquare = plotAreaWidth > 0
-    ? plotAreaWidth
-    : Math.max(200, containerWidth - (isMobile ? 60 : 100));
-  const maxTabHeight = maxPlotSquare + OVERHEAD;
+
+  // Sizing — hook measures container + plot area, computes square size
+  const { containerWidth, squareSize: rawSquare, maxTabHeight, isMobile, plotAreaRef, controlsRef, OVERHEAD } = usePlotLayout(containerRef, DEFAULT_TAB_HEIGHT, minimized);
   const { plotHeight: tabHeightStored, ResizeBar } = useResizableHeight(STORAGE_KEY_TAB_HEIGHT, DEFAULT_TAB_HEIGHT, maxTabHeight);
   const tabHeight = Math.min(tabHeightStored, maxTabHeight);
+  const contentHeight = Math.max(100, tabHeight - OVERHEAD);
+  const squareSize = rawSquare > 0 ? Math.min(contentHeight, rawSquare) : contentHeight;
 
   const prevAvailableRef = useRef(null);
   const [polarRevs, setPolarRevs] = useState(DEFAULT_POLAR_REVS);
 
   const hasRpm = rpmInfo?.value != null;
   const tabs = useMemo(() =>
-    hasRpm ? [...TAB_DEFS_BASE, TAB_POLAR] : TAB_DEFS_BASE,
+    hasRpm ? [TAB_POLAR, ...TAB_DEFS_BASE] : TAB_DEFS_BASE,
     [hasRpm]
   );
 
@@ -83,27 +78,6 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
     }
   }, [available, activeTab]);
 
-  // Measure container — re-run when available or minimized changes (ref may not be in DOM)
-  useEffect(() => {
-    if (!containerRef.current) return;
-    setContainerWidth(containerRef.current.clientWidth);
-    const observer = new ResizeObserver((entries) => {
-      setContainerWidth(entries[0].contentRect.width);
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [available, minimized]);
-
-  // Measure actual plot area width (flex child after controls)
-  useEffect(() => {
-    if (!plotAreaRef.current) return;
-    setPlotAreaWidth(plotAreaRef.current.clientWidth);
-    const observer = new ResizeObserver((entries) => {
-      setPlotAreaWidth(entries[0].contentRect.width);
-    });
-    observer.observe(plotAreaRef.current);
-    return () => observer.disconnect();
-  }, [available, minimized, activeTab]);
 
   const handleRevsChange = useCallback((revs) => {
     const n = Number(revs);
@@ -149,14 +123,14 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden', pr: { xs: 1, sm: 2 }, ...(minimized ? { pr: 0 } : { height: tabHeight, display: 'flex', flexDirection: 'column' }) }}>
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+    <Paper sx={{ width: '100%', overflow: 'hidden', ...(minimized ? {} : { height: tabHeight, display: 'flex', flexDirection: 'column' }) }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: minimized ? 0 : 1, borderColor: 'divider' }}>
         <Tabs
           value={activeIndex >= 0 ? activeIndex : false}
           onChange={handleTabChange}
           variant="scrollable"
           scrollButtons="auto"
-          sx={{ flex: 1, borderBottom: minimized ? 0 : 1, borderColor: 'divider', minHeight: 36 }}
+          sx={{ flex: 1, minHeight: 36 }}
         >
           {tabs.map(t => (
             <Tab
@@ -174,42 +148,31 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
       </Box>
 
       {!minimized && (
-        <Box ref={containerRef} sx={{ width: '100%', flex: 1, overflow: 'hidden', minHeight: 0 }}>
-          {(() => {
-            // Square: min of available height and actual plot area width
-            const contentHeight = tabHeight - OVERHEAD;
-            const squareSize = Math.max(100, Math.min(contentHeight, plotAreaWidth || contentHeight));
+        <Box ref={containerRef} sx={{ flex: 1, overflow: 'hidden', minHeight: 0, pr: { xs: 1, sm: 2 } }}>
+          {activeTab === 'advanced' && (
+            <AdvancedPanel currentOpts={currentOpts} onReanalyze={onReanalyze} rpmInfo={rpmInfo} />
+          )}
 
-            return <>
-              {/* Advanced config */}
-              {activeTab === 'advanced' && (
-                <AdvancedPanel currentOpts={currentOpts} onReanalyze={onReanalyze} rpmInfo={rpmInfo} />
+          {activeTab === 'histogram' && (
+            <Box ref={plotAreaRef} sx={{ display: 'flex', width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
+              {plotCache.histogram && squareSize > 0 && (
+                <HistogramPlot data={plotCache.histogram} width={squareSize} height={squareSize} />
               )}
+            </Box>
+          )}
 
-              {/* Histogram */}
-              {activeTab === 'histogram' && (
-                <Box sx={{ display: 'flex', width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
-                  {plotCache.histogram && squareSize > 0 && (
-                    <HistogramPlot data={plotCache.histogram} width={squareSize} height={squareSize} />
-                  )}
-                </Box>
-              )}
-
-              {/* Polar */}
-              {activeTab === 'polar' && (
-                <Box sx={{ display: 'flex', width: '100%', height: '100%', boxSizing: 'border-box' }}>
-                  <Box sx={{ flexShrink: 0, p: isMobile ? 1 : 2, display: 'flex', flexDirection: 'column', gap: 1, boxSizing: 'border-box' }}>
-                    <PolarControls available={available} revolutions={polarRevs} onRevsChange={handleRevsChange} plotData={plotCache.polar} />
-                  </Box>
-                  <Box ref={plotAreaRef} sx={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    {plotCache.polar && squareSize > 0 && (
-                      <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} />
-                    )}
-                  </Box>
-                </Box>
-              )}
-            </>;
-          })()}
+          {activeTab === 'polar' && (
+            <Box sx={{ display: 'flex', width: '100%', height: '100%' }}>
+              <Box ref={controlsRef} sx={{ flexShrink: 0, p: isMobile ? 1 : 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <PolarControls available={available} revolutions={polarRevs} onRevsChange={handleRevsChange} plotData={plotCache.polar} />
+              </Box>
+              <Box ref={plotAreaRef} sx={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center', pt: isMobile ? 1 : 2 }}>
+                {plotCache.polar && squareSize > 0 && (
+                  <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} />
+                )}
+              </Box>
+            </Box>
+          )}
         </Box>
       )}
       {!minimized && <ResizeBar />}
