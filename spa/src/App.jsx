@@ -6,6 +6,7 @@ import ErrorDisplay from './components/ErrorDisplay.jsx';
 import StatsPanel from './components/StatsPanel/StatsPanel.jsx';
 import Waveform from './components/Waveform/Waveform.jsx';
 import Spectrum from './components/Spectrum/Spectrum.jsx';
+import PlotTabs from './components/PlotTabs/PlotTabs.jsx';
 import { getPeakColor } from './components/Spectrum/peakColors.js';
 import { loadAudioFile, loadAudioFromUrl } from './services/audioLoader.js';
 import useQueryParams from './hooks/useQueryParams.js';
@@ -26,6 +27,7 @@ function App() {
   const [error, setError] = useState(null);
   const [errorTrace, setErrorTrace] = useState('');
   const audioRef = useRef(null); // keep PCM data for region re-analysis
+  const [analysisOpts, setAnalysisOpts] = useState({ rpm: 33.33 });
 
   // Split result state: full-file vs region
   const [fullResult, setFullResult] = useState(null);
@@ -220,6 +222,17 @@ function App() {
     }
   }, [lastMeasuredRegion, regionResult, fullResult]);
 
+  // Re-analyze with additional params (e.g. RPM for polar plot)
+  const handleReanalyze = useCallback(async (opts) => {
+    if (!audioRef.current) return;
+    const mergedOpts = { ...analysisOpts, ...opts };
+    setAnalysisOpts(mergedOpts);
+    const { pcm, sampleRate } = audioRef.current;
+    setProcessing(true);
+    setStatus('Re-analyzing...');
+    await analyzeFull(pcm, sampleRate, mergedOpts);
+  }, [analysisOpts]);
+
   const hasFile = !!audioInfo;
 
   return (
@@ -274,6 +287,14 @@ function App() {
         spectrumData={activeResult?.plots?.spectrum}
         onHarmonicSelect={handleHarmonicSelect}
         processing={processing}
+      />
+
+      {/* On-demand plots: Histogram, Polar, Lissajous */}
+      <PlotTabs
+        available={activeResult?.available}
+        processing={processing}
+        onReanalyze={handleReanalyze}
+        currentOpts={analysisOpts}
       />
     </Layout>
   );
