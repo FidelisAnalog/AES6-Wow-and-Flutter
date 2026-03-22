@@ -9,8 +9,6 @@ import { Box, Typography, ToggleButtonGroup, ToggleButton, TextField, Button, Ch
 
 const TRANSPORT_TYPES = [
   { label: 'Turntable', value: 'turntable' },
-  { label: 'Tape', value: 'tape' },
-  { label: 'Other', value: 'other' },
 ];
 
 const RPM_PRESETS = {
@@ -21,13 +19,6 @@ const RPM_PRESETS = {
     { label: '45', value: 45 },
     { label: '78', value: 78.26 },
   ],
-  tape: [
-    { label: '1⅞ ips', value: null },
-    { label: '3¾ ips', value: null },
-    { label: '7½ ips', value: null },
-    { label: '15 ips', value: null },
-  ],
-  other: [],
 };
 
 export default function AdvancedPanel({ currentOpts, onReanalyze, rpmInfo }) {

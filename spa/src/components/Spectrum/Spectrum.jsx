@@ -41,7 +41,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
   const theme = useTheme();
 
   // Resizable plot height — drag bottom border of card
-  const { plotHeight, containerProps: resizeProps } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
+  const { plotHeight, ResizeBar } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
   const totalHeight = plotHeight + AXIS_HEIGHT;
 
   const freqs = spectrumData?.freqs;
@@ -244,7 +244,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
   if (!hasData) return null;
 
   return (
-    <Paper {...resizeProps} sx={{ p: 2, width: '100%', overflow: 'hidden' }}>
+    <Paper sx={{ p: 2, pb: 0, width: '100%', overflow: 'hidden' }}>
       {/* Overview bar */}
       <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
         <SpectrumOverview
@@ -383,6 +383,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
           </span>
         </Tooltip>
       </Box>
+      <ResizeBar />
     </Paper>
   );
 }

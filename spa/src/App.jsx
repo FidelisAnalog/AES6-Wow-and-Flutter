@@ -301,7 +301,7 @@ function App() {
         processing={processing}
         onReanalyze={handleReanalyze}
         currentOpts={analysisOpts}
-        rpmInfo={activeResult?.metrics?.rpm}
+        rpmInfo={fullResult?.metrics?.rpm}
       />
     </Layout>
   );
