@@ -18,7 +18,7 @@ export default function Footer() {
       </Typography>
       <Typography variant="caption" color="text.secondary">
         <Link href="https://github.com/FidelisAnalog/AES6-Wow-and-Flutter" target="_blank" rel="noopener" color="inherit" underline="hover">
-          View on GitHub.
+          View on GitHub
         </Link>
       </Typography>
     </Box>

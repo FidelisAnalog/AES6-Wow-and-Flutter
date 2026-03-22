@@ -102,7 +102,27 @@ export default function ThemeProvider({ children }) {
   }, []);
 
   const theme = useMemo(
-    () => createTheme({ palette: mode === 'dark' ? darkPalette : lightPalette }),
+    () => {
+      const palette = mode === 'dark' ? darkPalette : lightPalette;
+      return createTheme({
+        palette,
+        ...(palette.inputBackground ? {
+          components: {
+            MuiOutlinedInput: {
+              styleOverrides: { root: { backgroundColor: palette.inputBackground } },
+            },
+            MuiButton: {
+              styleOverrides: { outlined: { backgroundColor: palette.inputBackground } },
+            },
+            MuiToggleButtonGroup: {
+              styleOverrides: {
+                root: { backgroundColor: palette.inputBackground },
+              },
+            },
+          },
+        } : {}),
+      });
+    },
     [mode],
   );
 
