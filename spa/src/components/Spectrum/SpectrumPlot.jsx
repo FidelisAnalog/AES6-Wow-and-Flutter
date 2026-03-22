@@ -184,8 +184,8 @@ function drawGrid(ctx, width, height, ampMin, ampMax, ampToY, gridColor, logScal
   ctx.lineWidth = 0.5;
 
   if (logScale) {
-    // dB grid lines: every 10 dB relative to max
-    for (let db = -10; db >= -80; db -= 10) {
+    // dB grid lines: every 10 dB relative to max (including 0 dB)
+    for (let db = 0; db >= -80; db -= 10) {
       const val = ampMax * Math.pow(10, db / 20);
       if (val < ampMin * 0.9) break;
       const y = ampToY(val);
@@ -199,13 +199,15 @@ function drawGrid(ctx, width, height, ampMin, ampMax, ampToY, gridColor, logScal
   } else {
     const rawStep = ampMax / 5;
     const step = niceNum(rawStep);
-    let val = step;
-    while (val < ampMax) {
+    let val = 0;
+    while (val <= ampMax) {
       const y = ampToY(val);
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
+      if (y >= 0 && y <= height) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
       val += step;
     }
   }

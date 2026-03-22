@@ -266,8 +266,9 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
         <AmplitudeAxis
           ampMin={spData.ampMin}
           ampMax={spData.ampMax}
-          height={totalHeight}
+          height={plotHeight}
           logScale={logAmpScale}
+          ampToY={spData.ampToY}
         />
 
         <Box
