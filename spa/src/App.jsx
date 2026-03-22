@@ -133,10 +133,8 @@ function App() {
         setProcessing(true);
         setStatus('Starting analysis...');
         await analyzeFull(pcm, audio.sampleRate);
-        // Strip file param from URL so refreshes and shared links don't re-fetch
-        const url = new URL(window.location);
-        url.searchParams.delete('file');
-        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+        // Strip all query params after successful load
+        window.history.replaceState({}, '', window.location.pathname);
       } catch (e) {
         setError(String(e));
         setStatus('URL load failed');
