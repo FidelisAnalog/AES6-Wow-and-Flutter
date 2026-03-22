@@ -264,7 +264,7 @@ export default function Waveform({
         <DeviationAxis
           yMin={wfData.yMin}
           yMax={wfData.yMax}
-          height={totalHeight}
+          height={plotHeight}
         />
 
         {/* Main area container — holds scroll wrapper and handle overlays */}

@@ -7,15 +7,15 @@ import { useTheme } from '@mui/material/styles';
 
 const AXIS_WIDTH = 52;
 
-export default function AmplitudeAxis({ ampMin = 0, ampMax, height, logScale = false }) {
+export default function AmplitudeAxis({ ampMin = 0, ampMax, height, logScale = false, ampToY }) {
   const theme = useTheme();
   const textColor = theme.palette.text.secondary;
 
   if (!height || ampMax <= 0) return null;
 
   const ticks = logScale
-    ? logTicks(ampMin, ampMax, height)
-    : linearTicks(ampMax, height);
+    ? logTicks(ampMin, ampMax, height, ampToY)
+    : linearTicks(ampMax, height, ampToY);
 
   return (
     <svg width={AXIS_WIDTH} height={height} style={{ display: 'block', overflow: 'visible' }}>
@@ -38,31 +38,25 @@ export default function AmplitudeAxis({ ampMin = 0, ampMax, height, logScale = f
   );
 }
 
-function linearTicks(ampMax, height) {
+function linearTicks(ampMax, height, ampToY) {
   const rawStep = ampMax / 5;
   const step = niceNum(rawStep);
   const ticks = [];
   let val = 0;
   while (val <= ampMax) {
-    const y = ((ampMax - val) / ampMax) * height;
+    const y = ampToY ? ampToY(val) : ((ampMax - val) / ampMax) * height;
     ticks.push({ label: formatAmp(val, step), y });
     val += step;
   }
   return ticks;
 }
 
-function logTicks(ampMin, ampMax, height) {
-  const logMax = Math.log10(ampMax);
-  const logMin = Math.log10(Math.max(ampMin, 1e-20));
-  const logRange = logMax - logMin;
-  if (logRange <= 0) return [];
-
+function logTicks(ampMin, ampMax, height, ampToY) {
   const ticks = [];
-  // dB ticks relative to max: 0, -10, -20, -30, ...
   for (let db = 0; db >= -80; db -= 10) {
     const val = ampMax * Math.pow(10, db / 20);
     if (val < ampMin * 0.9) break;
-    const y = ((logMax - Math.log10(val)) / logRange) * height;
+    const y = ampToY ? ampToY(val) : 0;
     if (y >= -5 && y <= height + 5) {
       ticks.push({ label: `${db} dB`, y });
     }
