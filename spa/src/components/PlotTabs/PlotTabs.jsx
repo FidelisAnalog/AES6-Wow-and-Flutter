@@ -39,7 +39,7 @@ const TAB_DEFS = [
 
 const DEFAULT_POLAR_REVS = 2;
 
-export default function PlotTabs({ available, processing, onReanalyze, currentOpts }) {
+export default function PlotTabs({ available, processing, onReanalyze, currentOpts, rpmInfo }) {
   const [activeTab, setActiveTab] = useState(null);
   const [plotCache, setPlotCache] = useState({});
   const [containerWidth, setContainerWidth] = useState(0);
@@ -158,7 +158,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
 
           {/* Advanced config */}
           {activeTab === 'advanced' && (
-            <AdvancedPanel currentOpts={currentOpts} onReanalyze={onReanalyze} />
+            <AdvancedPanel currentOpts={currentOpts} onReanalyze={onReanalyze} rpmInfo={rpmInfo} />
           )}
 
           {/* Histogram */}

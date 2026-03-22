@@ -1,10 +1,11 @@
 /**
  * Advanced configuration panel — transport type, RPM, motor params.
  * These are global analysis parameters that affect re-analysis.
+ * Shows auto-detected RPM from wf_core when available.
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { Box, Typography, ToggleButtonGroup, ToggleButton, TextField, Button } from '@mui/material';
+import { Box, Typography, ToggleButtonGroup, ToggleButton, TextField, Button, Chip } from '@mui/material';
 
 const TRANSPORT_TYPES = [
   { label: 'Turntable', value: 'turntable' },
@@ -14,9 +15,11 @@ const TRANSPORT_TYPES = [
 
 const RPM_PRESETS = {
   turntable: [
-    { label: '33⅓', value: 33.333 },
+    { label: '16⅔', value: 16.67 },
+    { label: '22½', value: 22.5 },
+    { label: '33⅓', value: 33.33 },
     { label: '45', value: 45 },
-    { label: '78', value: 78 },
+    { label: '78', value: 78.26 },
   ],
   tape: [
     { label: '1⅞ ips', value: null },
@@ -27,20 +30,33 @@ const RPM_PRESETS = {
   other: [],
 };
 
-export default function AdvancedPanel({ currentOpts, onReanalyze }) {
+export default function AdvancedPanel({ currentOpts, onReanalyze, rpmInfo }) {
   const [transport, setTransport] = useState('turntable');
-  const [rpmPreset, setRpmPreset] = useState(33.333);
+  const [rpmPreset, setRpmPreset] = useState(null);
   const [rpmCustom, setRpmCustom] = useState('');
-  const [rpmMode, setRpmMode] = useState('preset');
+  const [rpmMode, setRpmMode] = useState('auto'); // 'auto' | 'preset' | 'custom'
   const [motorSlots, setMotorSlots] = useState('');
   const [motorPoles, setMotorPoles] = useState('');
   const [driveRatio, setDriveRatio] = useState('');
   const [dirty, setDirty] = useState(false);
 
-  const rpm = rpmMode === 'preset' ? rpmPreset : (parseFloat(rpmCustom) || null);
+  // Resolve effective RPM
+  const rpm = rpmMode === 'auto'
+    ? rpmInfo?.value ?? null
+    : rpmMode === 'preset'
+      ? rpmPreset
+      : (parseFloat(rpmCustom) || null);
+
   const showMotorParams = transport === 'turntable';
   const showRpmPresets = transport !== 'other';
   const presets = RPM_PRESETS[transport] || [];
+
+  // When rpmInfo changes (new analysis), reset to auto if user hasn't overridden
+  useEffect(() => {
+    if (rpmInfo && rpmInfo.source === 'detected' && rpmMode === 'auto') {
+      setDirty(false);
+    }
+  }, [rpmInfo, rpmMode]);
 
   const handleTransportChange = useCallback((_, val) => {
     if (val == null) return;
@@ -65,26 +81,36 @@ export default function AdvancedPanel({ currentOpts, onReanalyze }) {
     setDirty(true);
   }, []);
 
-  // Auto-apply default 33⅓ on first render if onReanalyze exists
-  useEffect(() => {
-    if (currentOpts?.rpm === 33.333) setDirty(false);
-  }, [currentOpts]);
+  const handleResetToAuto = useCallback(() => {
+    setRpmMode('auto');
+    setRpmPreset(null);
+    setRpmCustom('');
+    setDirty(true);
+  }, []);
 
   const handleApply = useCallback(() => {
     if (!onReanalyze) return;
     const opts = {};
-    if (rpm) opts.rpm = rpm;
+    if (rpmMode !== 'auto' && rpm) opts.rpm = rpm;
+    // auto mode: don't pass rpm, let wf_core detect
     if (motorSlots) opts.motor_slots = parseInt(motorSlots, 10) || undefined;
     if (motorPoles) opts.motor_poles = parseInt(motorPoles, 10) || undefined;
     if (driveRatio) opts.drive_ratio = parseFloat(driveRatio) || undefined;
     onReanalyze(opts);
     setDirty(false);
-  }, [rpm, motorSlots, motorPoles, driveRatio, onReanalyze]);
+  }, [rpm, rpmMode, motorSlots, motorPoles, driveRatio, onReanalyze]);
 
   const rowSx = { display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' };
   const labelSx = { minWidth: 55, fontSize: '0.8rem' };
   const inputSx = { width: 70 };
   const inputProps = { style: { padding: '4px 8px', fontFamily: 'monospace', fontSize: '0.8rem' } };
+
+  // Format detected RPM display
+  const detectedLabel = rpmInfo?.source === 'detected' && rpmInfo?.value != null
+    ? `Detected: ${rpmInfo.value} RPM (${rpmInfo.f_rot_measured} Hz)`
+    : rpmInfo?.source === 'user'
+      ? `User: ${rpmInfo.value} RPM`
+      : 'Not detected';
 
   return (
     <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
@@ -107,14 +133,29 @@ export default function AdvancedPanel({ currentOpts, onReanalyze }) {
         </ToggleButtonGroup>
       </Box>
 
-      {/* RPM */}
+      {/* RPM — detected info + override */}
       <Box sx={rowSx}>
         <Typography variant="body2" color="text.secondary" sx={labelSx}>
           RPM
         </Typography>
+        <Chip
+          label={detectedLabel}
+          size="small"
+          color={rpmMode === 'auto' ? 'primary' : 'default'}
+          variant={rpmMode === 'auto' ? 'filled' : 'outlined'}
+          onClick={handleResetToAuto}
+          sx={{ fontSize: '0.75rem' }}
+        />
+      </Box>
+
+      {/* RPM override */}
+      <Box sx={rowSx}>
+        <Typography variant="body2" color="text.secondary" sx={labelSx}>
+          Override
+        </Typography>
         {showRpmPresets && presets.length > 0 && (
           <ToggleButtonGroup
-            value={rpmPreset}
+            value={rpmMode === 'preset' ? rpmPreset : null}
             exclusive
             onChange={handlePresetChange}
             size="small"
@@ -181,7 +222,6 @@ export default function AdvancedPanel({ currentOpts, onReanalyze }) {
             variant="outlined"
             size="small"
             onClick={handleApply}
-            disabled={!rpm}
             sx={{ textTransform: 'none', fontSize: '0.8rem' }}
           >
             Re-analyze
