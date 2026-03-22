@@ -6,6 +6,20 @@ on:
       - production
       - test
       - preview
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        required: true
+        type: choice
+        options:
+          - production
+          - test
+          - preview
+
+concurrency:
+  group: deploy-myhi-fi
+  cancel-in-progress: false
 
 jobs:
   deploy:
