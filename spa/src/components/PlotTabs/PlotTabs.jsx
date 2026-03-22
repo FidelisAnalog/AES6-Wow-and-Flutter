@@ -201,7 +201,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
                   <Box sx={{ flexShrink: 0, p: isMobile ? 1 : 2, display: 'flex', flexDirection: 'column', gap: 1, boxSizing: 'border-box' }}>
                     <PolarControls available={available} revolutions={polarRevs} onRevsChange={handleRevsChange} plotData={plotCache.polar} />
                   </Box>
-                  <Box ref={plotAreaRef} sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end', pt: 1 }}>
+                  <Box ref={plotAreaRef} sx={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                     {plotCache.polar && squareSize > 0 && (
                       <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} />
                     )}

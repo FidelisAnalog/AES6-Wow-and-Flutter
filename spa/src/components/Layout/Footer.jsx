@@ -13,8 +13,13 @@ export default function Footer() {
         mt: 'auto',
       }}
     >
+      <Typography variant="caption" color="text.secondary" display="block">
+        AES6-2008 / DIN 45507 / IEC 60386 / CCIR 409-2 Conformant
+      </Typography>
       <Typography variant="caption" color="text.secondary">
-        AES6-2008 / DIN 45507 / IEC 60386 conformant wow &amp; flutter analysis
+        <Link href="https://github.com/FidelisAnalog/AES6-Wow-and-Flutter" target="_blank" rel="noopener" color="inherit" underline="hover">
+          View on GitHub.
+        </Link>
       </Typography>
     </Box>
   );
