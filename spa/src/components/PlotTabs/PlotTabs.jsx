@@ -123,14 +123,14 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden', pr: { xs: 1, sm: 2 }, ...(minimized ? { pr: 0 } : { height: tabHeight, display: 'flex', flexDirection: 'column' }) }}>
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+    <Paper sx={{ width: '100%', overflow: 'hidden', ...(minimized ? {} : { height: tabHeight, display: 'flex', flexDirection: 'column' }) }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: minimized ? 0 : 1, borderColor: 'divider' }}>
         <Tabs
           value={activeIndex >= 0 ? activeIndex : false}
           onChange={handleTabChange}
           variant="scrollable"
           scrollButtons="auto"
-          sx={{ flex: 1, borderBottom: minimized ? 0 : 1, borderColor: 'divider', minHeight: 36 }}
+          sx={{ flex: 1, minHeight: 36 }}
         >
           {tabs.map(t => (
             <Tab
@@ -148,7 +148,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
       </Box>
 
       {!minimized && (
-        <Box ref={containerRef} sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        <Box ref={containerRef} sx={{ flex: 1, overflow: 'hidden', minHeight: 0, pr: { xs: 1, sm: 2 } }}>
           {activeTab === 'advanced' && (
             <AdvancedPanel currentOpts={currentOpts} onReanalyze={onReanalyze} rpmInfo={rpmInfo} />
           )}
