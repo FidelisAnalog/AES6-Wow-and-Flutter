@@ -27,7 +27,7 @@ function App() {
   const [error, setError] = useState(null);
   const [errorTrace, setErrorTrace] = useState('');
   const audioRef = useRef(null); // keep PCM data for region re-analysis
-  const [analysisOpts, setAnalysisOpts] = useState({ rpm: 33.33 });
+  const [analysisOpts, setAnalysisOpts] = useState({});
 
   // Split result state: full-file vs region
   const [fullResult, setFullResult] = useState(null);
@@ -183,7 +183,7 @@ function App() {
       isRegionMeasureRef.current = false;
       setProcessing(true);
       setStatus('Restoring full-file analysis...');
-      analyzeFull(pcm, sampleRate);
+      analyzeFull(pcm, sampleRate, analysisOpts);
       return;
     }
 
@@ -196,8 +196,12 @@ function App() {
     pendingRegionRef.current = [startSec, endSec];
     setProcessing(true);
     setStatus('Re-measuring region...');
-    analyzeFull(slice, sampleRate);
-  }, [audioInfo, fullResult]);
+    // Pass full-file detected RPM so wf_core doesn't re-detect on short slice
+    const detectedRpm = fullResult?.metrics?.rpm?.value;
+    const regionOpts = { ...analysisOpts };
+    if (detectedRpm && !regionOpts.rpm) regionOpts.rpm = detectedRpm;
+    analyzeFull(slice, sampleRate, regionOpts);
+  }, [audioInfo, fullResult, analysisOpts]);
 
   // Harmonic overlay handler — called when spectrum peak selection changes
   const handleHarmonicSelect = useCallback((selectedFreqs, selectedIndices) => {
@@ -299,6 +303,7 @@ function App() {
         processing={processing}
         onReanalyze={handleReanalyze}
         currentOpts={analysisOpts}
+        rpmInfo={activeResult?.metrics?.rpm}
       />
     </Layout>
   );

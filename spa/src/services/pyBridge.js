@@ -182,7 +182,7 @@ finally:
 
 const MAX_RETRIES = 2;
 
-export async function analyzeFull(pcmData, sampleRate, opts = { rpm: 33.33 }) {
+export async function analyzeFull(pcmData, sampleRate, opts = {}) {
   if (!_ready || !_pyodideAlive()) {
     console.warn('[wf_core] Pyodide not ready or WASM evicted, reinitializing...');
     _onStatus?.('Reinitializing Python runtime...');
