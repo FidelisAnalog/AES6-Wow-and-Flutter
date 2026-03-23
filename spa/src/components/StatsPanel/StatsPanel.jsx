@@ -37,7 +37,7 @@ export default function StatsPanel({ result, processing, duration, audioInfo }) 
   if (!result && processing) {
     return (
       <Paper sx={{ p: 1.5, px: 2 }}>
-        {audioInfo && <FileHeader audioInfo={audioInfo} resultDuration={duration} />}
+        {audioInfo && <FileHeader audioInfo={audioInfo} resultDuration={duration} metrics={result?.metrics} />}
         <Skeleton variant="text" width="80%" />
         <Skeleton variant="text" width="60%" />
       </Paper>
@@ -60,7 +60,7 @@ export default function StatsPanel({ result, processing, duration, audioInfo }) 
   return (
     <Paper sx={{ p: 1.5, px: { xs: 1, sm: 2 }, opacity: processing ? 0.5 : 1, transition: 'opacity 0.2s' }}>
       {/* Line 1: File info */}
-      {audioInfo && <FileHeader audioInfo={audioInfo} resultDuration={duration} />}
+      {audioInfo && <FileHeader audioInfo={audioInfo} resultDuration={duration} metrics={result?.metrics} />}
 
       {/* Line 2: Mean + Drift */}
       <Box sx={{ mt: 0.5 }}>
@@ -91,7 +91,7 @@ function fmtSR(sr) {
   return sr >= 1000 ? `${sr / 1000}k` : `${sr}`;
 }
 
-function FileHeader({ audioInfo, resultDuration }) {
+function FileHeader({ audioInfo, resultDuration, metrics }) {
   const {
     fileName, sampleRate, channels, duration,
     wasTruncated, wasDownsampled, originalDuration, originalSampleRate,
@@ -111,7 +111,7 @@ function FileHeader({ audioInfo, resultDuration }) {
         )}
         {sampleRate == null && audioInfo.inputType === 'device' && (
           <Typography variant="body2" color="text.secondary" component="span" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-            Device Input{resultDuration ? ` | ${resultDuration.toFixed(2)}s` : ''}
+            {metrics?.device_format || 'Device'}{metrics?.device_label ? ` (${metrics.device_label})` : ''}{resultDuration ? ` | ${resultDuration.toFixed(2)}s` : ''}
           </Typography>
         )}
       </Box>

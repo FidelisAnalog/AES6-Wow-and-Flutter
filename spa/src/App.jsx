@@ -308,8 +308,8 @@ function App() {
         totalDuration={audioInfo?.duration ?? fullResult?.metrics?.duration}
         harmonicOverlays={harmonicOverlays}
         processing={processing}
-        onMeasureRegion={audioInfo?.inputType !== 'device' ? handleMeasureRegion : undefined}
-        lastMeasuredRegion={audioInfo?.inputType !== 'device' ? lastMeasuredRegion : undefined}
+        onMeasureRegion={audioInfo?.inputType !== 'device' ? handleMeasureRegion : null}
+        lastMeasuredRegion={lastMeasuredRegion}
       />
 
       {/* Spectrum plot with peak selection */}
