@@ -5,9 +5,10 @@
 
 import { useTheme } from '@mui/material/styles';
 
-const AXIS_WIDTH = 52;
+const AXIS_WIDTH_DEFAULT = 52;
 
-export default function AmplitudeAxis({ ampMin = 0, ampMax, height, logScale = false, ampToY }) {
+export default function AmplitudeAxis({ ampMin = 0, ampMax, height, logScale = false, ampToY, width = AXIS_WIDTH_DEFAULT }) {
+  const AXIS_WIDTH = width;
   const theme = useTheme();
   const textColor = theme.palette.text.secondary;
 
@@ -81,4 +82,3 @@ function niceNum(x) {
   return nice * Math.pow(10, exp);
 }
 
-export { AXIS_WIDTH };

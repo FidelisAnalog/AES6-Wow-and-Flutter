@@ -21,6 +21,7 @@ const HIT_MOUSE = 8;
 const EPSILON = 0.001;
 
 export default function LoopHandles({
+  visible = true,
   loopStart,
   loopEnd,
   totalDuration,
@@ -116,6 +117,8 @@ export default function LoopHandles({
     ? `${loopDuration.toFixed(1)}s`
     : `${Math.floor(loopDuration / 60)}m ${(loopDuration % 60).toFixed(0)}s`;
 
+  if (loopStart == null || loopEnd == null) return null;
+
   return (
     <div style={{
       position: 'absolute',
@@ -125,6 +128,7 @@ export default function LoopHandles({
       height: containerHeight,
       pointerEvents: 'none',
       overflow: 'visible',
+      display: visible ? undefined : 'none',
     }}>
       {/* Start handle hit area — biased left (outward) */}
       {startHitVisible && (
@@ -190,8 +194,9 @@ export default function LoopHandles({
           position: 'absolute',
           left: (startX + endX) / 2,
           top: 4,
-          transform: 'translateX(-50%)',
+          transform: 'translateX(-50%) translateZ(0)',
           pointerEvents: 'none',
+          willChange: 'transform',
         }}>
           <Typography
             variant="caption"

@@ -23,10 +23,12 @@ import useSpectrumData, { getAmpScale } from './useSpectrumData.js';
 import useSpectrumNavigation from './useSpectrumNavigation.js';
 import useResizableHeight from '../ResizeHandle.jsx';
 import { SPECTRUM_MIN_FREQ } from '../../config/constants.js';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 const DEFAULT_HEIGHT = 240;
 const STORAGE_KEY = 'spectrumHeight';
-const AXIS_WIDTH = 52;
+const AXIS_WIDTH_DESKTOP = 52;
+const AXIS_WIDTH_MOBILE = 36;
 const EPSILON = 0.001;
 
 function logF(f) {
@@ -39,6 +41,8 @@ function isViewZoomed(fMin, fMax, dFMin, dFMax) {
 
 export default function Spectrum({ spectrumData, onHarmonicSelect, processing = false }) {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const AXIS_WIDTH = isMobile ? AXIS_WIDTH_MOBILE : AXIS_WIDTH_DESKTOP;
 
   // Resizable plot height — drag bottom border of card
   const { plotHeight, ResizeBar } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
@@ -288,6 +292,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
           height={plotHeight}
           logScale={logAmpScale}
           ampToY={spData.ampToY}
+          width={AXIS_WIDTH}
         />
 
         <Box
