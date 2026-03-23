@@ -1,11 +1,12 @@
 import { useTheme } from '@mui/material/styles';
 
-const AXIS_WIDTH = 52;
+const AXIS_WIDTH_DEFAULT = 52;
 
 /**
  * SVG Y-axis for deviation %. Symmetric around 0. Zero tick always shown.
  */
-export default function DeviationAxis({ yMin, yMax, height }) {
+export default function DeviationAxis({ yMin, yMax, height, width = AXIS_WIDTH_DEFAULT }) {
+  const AXIS_WIDTH = width;
   const theme = useTheme();
   const textColor = theme.palette.text.secondary;
 

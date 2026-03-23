@@ -28,10 +28,12 @@ import useWaveformData, { getYScale } from './useWaveformData.js';
 import useWaveformGestures from './useWaveformGestures.js';
 import useResizableHeight from '../ResizeHandle.jsx';
 import { MIN_MEASUREMENT_SECONDS } from '../../config/constants.js';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 const DEFAULT_HEIGHT = 240;
 const STORAGE_KEY = 'waveformHeight';
-const AXIS_WIDTH = 52;
+const AXIS_WIDTH_DESKTOP = 52;
+const AXIS_WIDTH_MOBILE = 36;
 const EPSILON = 0.001;
 const REGION_MATCH_TOLERANCE = 0.01; // seconds
 
@@ -55,6 +57,8 @@ export default function Waveform({
   lastMeasuredRegion = null,
 }) {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const AXIS_WIDTH = isMobile ? AXIS_WIDTH_MOBILE : AXIS_WIDTH_DESKTOP;
   const canMeasure = !!onMeasureRegion;
 
   // Resizable plot height — drag bottom border of card
@@ -290,6 +294,7 @@ export default function Waveform({
           yMin={wfData.yMin}
           yMax={wfData.yMax}
           height={plotHeight}
+          width={AXIS_WIDTH}
         />
 
         {/* Main area container — holds scroll wrapper and handle overlays */}
@@ -357,9 +362,9 @@ export default function Waveform({
               </div>
             </Box>
 
-            {/* Handle overlays — OUTSIDE scroll wrapper (only when measurement supported) */}
-            {canMeasure && (
-              <LoopHandles
+            {/* Handle overlays — OUTSIDE scroll wrapper, hidden when measurement not supported */}
+            <LoopHandles
+                visible={canMeasure}
                 loopStart={loopStart}
                 loopEnd={loopEnd}
                 totalDuration={totalDuration}
@@ -370,7 +375,6 @@ export default function Waveform({
                 gestureRef={gestureRef}
                 onLoopChange={handleLoopChange}
               />
-            )}
           </>}
         </Box>
       </Box>
