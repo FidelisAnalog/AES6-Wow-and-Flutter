@@ -52,11 +52,11 @@ export default function DeviationAxis({ yMin, yMax, height }) {
 }
 
 function formatDeviation(val, step) {
-  if (Math.abs(val) < 1e-10) return '0%';
+  if (Math.abs(val) < 1e-10) return '0';
   // Determine decimal places from step size
   const decimals = Math.max(0, Math.ceil(-Math.log10(step)));
   const prefix = val > 0 ? '+' : '';
-  return `${prefix}${val.toFixed(decimals)}%`;
+  return `${prefix}${val.toFixed(decimals)}`;
 }
 
 function niceNum(x) {

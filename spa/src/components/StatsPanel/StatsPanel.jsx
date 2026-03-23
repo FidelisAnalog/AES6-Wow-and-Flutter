@@ -37,7 +37,7 @@ export default function StatsPanel({ result, processing, duration, audioInfo }) 
   if (!result && processing) {
     return (
       <Paper sx={{ p: 1.5, px: 2 }}>
-        {audioInfo && <FileHeader audioInfo={audioInfo} />}
+        {audioInfo && <FileHeader audioInfo={audioInfo} resultDuration={duration} />}
         <Skeleton variant="text" width="80%" />
         <Skeleton variant="text" width="60%" />
       </Paper>
@@ -60,11 +60,11 @@ export default function StatsPanel({ result, processing, duration, audioInfo }) 
   return (
     <Paper sx={{ p: 1.5, px: { xs: 1, sm: 2 }, opacity: processing ? 0.5 : 1, transition: 'opacity 0.2s' }}>
       {/* Line 1: File info */}
-      {audioInfo && <FileHeader audioInfo={audioInfo} />}
+      {audioInfo && <FileHeader audioInfo={audioInfo} resultDuration={duration} />}
 
       {/* Line 2: Mean + Drift */}
       <Box sx={{ mt: 0.5 }}>
-        <Metric label="Mean:" value={`${fmt(metrics.f_mean, 3)} Hz`} />
+        {metrics.input_type !== 'device' && <Metric label="Mean:" value={`${fmt(metrics.f_mean, 3)} Hz`} />}
         {showDrift && <Metric label="Drift:" value={`${fmt(non_standard.drift_rms.value)}%`} />}
       </Box>
 
@@ -91,7 +91,7 @@ function fmtSR(sr) {
   return sr >= 1000 ? `${sr / 1000}k` : `${sr}`;
 }
 
-function FileHeader({ audioInfo }) {
+function FileHeader({ audioInfo, resultDuration }) {
   const {
     fileName, sampleRate, channels, duration,
     wasTruncated, wasDownsampled, originalDuration, originalSampleRate,
@@ -103,10 +103,17 @@ function FileHeader({ audioInfo }) {
         <Typography variant="body2" component="span" sx={{ fontWeight: 600 }}>
           {fileName}
         </Typography>
-        <Typography variant="body2" color="text.secondary" component="span" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
-          {fmtSR(sampleRate)} | {channels}ch | {duration.toFixed(2)}s
-          {wasDownsampled && ` (from ${fmtSR(originalSampleRate)})`}
-        </Typography>
+        {sampleRate != null && (
+          <Typography variant="body2" color="text.secondary" component="span" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+            {fmtSR(sampleRate)} | {channels}ch | {duration?.toFixed(2)}s
+            {wasDownsampled && ` (from ${fmtSR(originalSampleRate)})`}
+          </Typography>
+        )}
+        {sampleRate == null && audioInfo.inputType === 'device' && (
+          <Typography variant="body2" color="text.secondary" component="span" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+            Device Input{resultDuration ? ` | ${resultDuration.toFixed(2)}s` : ''}
+          </Typography>
+        )}
       </Box>
       {wasTruncated && (
         <Alert severity="info" sx={{ mt: 0.5, py: 0 }}>

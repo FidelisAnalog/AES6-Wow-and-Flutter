@@ -48,7 +48,7 @@ export default function FileInput({ onFileSelected, disabled, compact = false })
     <input
       ref={inputRef}
       type="file"
-      accept=".wav,.flac"
+      accept=".wav,.flac,.txt"
       style={{ display: 'none' }}
       onChange={handleFileChange}
     />
@@ -83,8 +83,8 @@ export default function FileInput({ onFileSelected, disabled, compact = false })
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
-        width: '50%',
-        height: '50vh',
+        width: '62.5%',
+        height: '37.5vh',
         mx: 'auto',
         my: 'auto',
         textAlign: 'center',
@@ -98,7 +98,10 @@ export default function FileInput({ onFileSelected, disabled, compact = false })
     >
       <CloudUpload sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
       <Typography color="text.secondary">
-        Drop a WAV file on the page, or click to browse
+        Drop your file anywhere on the page, or click to browse
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.8rem' }}>
+        WAV, FLAC, or shaknspin text file
       </Typography>
       {hiddenInput}
     </Paper>
