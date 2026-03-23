@@ -130,9 +130,10 @@ export function onError(cb) { _onError = cb; }
 export function isReady() { return _ready; }
 
 /**
- * Run full analysis on PCM data.
- * @param {Float32Array|Float64Array} pcmData
- * @param {number} sampleRate
+ * Run full analysis on PCM data or device text.
+ * @param {Float32Array|Float64Array|string} data - PCM array or text string
+ * @param {number|null} sampleRate - required for audio, null for device
+ * @param {string} [inputType='audio'] - 'audio' or 'device'
  * @param {object} [opts] - optional params: rpm, motor_slots, motor_poles, drive_ratio
  */
 const _ANALYSIS_PY = `
@@ -143,10 +144,15 @@ _worker_result = None
 _worker_error = None
 
 try:
-    _pcm = np.asarray(_pcm_data.to_py(), dtype=np.float64)
-    _sr = int(_sample_rate)
     _opts = _json.loads(_analysis_opts) if _analysis_opts else {}
-    _result = await analyzeFull(_pcm, _sr, **{k: v for k, v in _opts.items() if v is not None})
+    _input_type = _opts.pop('inputType', 'audio')
+    if _input_type == 'device':
+        _data = str(_pcm_data)
+        _result = await analyzeFull(_data, inputType='device', **{k: v for k, v in _opts.items() if v is not None})
+    else:
+        _pcm = np.asarray(_pcm_data.to_py(), dtype=np.float64)
+        _sr = int(_sample_rate)
+        _result = await analyzeFull(_pcm, _sr, **{k: v for k, v in _opts.items() if v is not None})
 
     # Convert large numpy arrays in-place via .tolist() (C-level, fast).
     for _k in ('t', 'deviation_pct'):
@@ -174,7 +180,7 @@ except Exception as _e:
 finally:
     del _pcm_data, _sample_rate, _analysis_opts
     # Clean up intermediate variables to free WASM memory
-    for _v in ('_pcm', '_sr', '_result', '_e'):
+    for _v in ('_pcm', '_sr', '_data', '_result', '_e', '_input_type'):
         if _v in dir():
             exec(f'del {_v}')
     import gc; gc.collect()
@@ -182,7 +188,7 @@ finally:
 
 const MAX_RETRIES = 2;
 
-export async function analyzeFull(pcmData, sampleRate, opts = {}) {
+export async function analyzeFull(data, sampleRate, inputType = 'audio', opts = {}) {
   if (!_ready || !_pyodideAlive()) {
     console.warn('[wf_core] Pyodide not ready or WASM evicted, reinitializing...');
     _onStatus?.('Reinitializing Python runtime...');
@@ -194,15 +200,16 @@ export async function analyzeFull(pcmData, sampleRate, opts = {}) {
     }
   }
 
-  const f64 = pcmData instanceof Float64Array
-    ? pcmData
-    : new Float64Array(pcmData);
+  const isDevice = inputType === 'device';
+  const pyData = isDevice
+    ? data
+    : (data instanceof Float64Array ? data : new Float64Array(data));
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      _pyodide.globals.set('_pcm_data', f64);
-      _pyodide.globals.set('_sample_rate', sampleRate);
-      _pyodide.globals.set('_analysis_opts', JSON.stringify(opts));
+      _pyodide.globals.set('_pcm_data', pyData);
+      _pyodide.globals.set('_sample_rate', sampleRate ?? 0);
+      _pyodide.globals.set('_analysis_opts', JSON.stringify({ ...opts, inputType }));
 
       await _pyodide.runPythonAsync(_ANALYSIS_PY);
 

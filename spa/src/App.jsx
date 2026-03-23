@@ -90,26 +90,50 @@ function App() {
     setHarmonicOverlays([]);
     isRegionMeasureRef.current = false;
 
-    if (!file.name.match(/\.(wav|flac)$/i)) {
-      setError('Unsupported file format. Please use WAV or FLAC.');
+    const isText = file.name.match(/\.txt$/i);
+    const isAudio = file.name.match(/\.(wav|flac)$/i);
+
+    if (!isText && !isAudio) {
+      setError('Unsupported file format. Please use WAV, FLAC, or TXT (shaknspin).');
       return;
     }
 
     try {
-      setStatus('Loading file...');
-      const audio = await loadAudioFile(file);
+      if (isText) {
+        setStatus('Reading text file...');
+        const text = await file.text();
+        audioRef.current = null;
+        setAudioInfo({
+          fileName: file.name,
+          sampleRate: null,
+          channels: null,
+          duration: null,
+          inputType: 'device',
+        });
+        setProcessing(true);
+        setStatus('Starting analysis...');
+        await analyzeFull(text, null, 'device');
+      } else {
+        setStatus('Loading file...');
+        const audio = await loadAudioFile(file);
 
-      // Keep PCM only in ref (not React state) — large typed arrays in
-      // React state cause Safari to stall 10-12s during rendering.
-      const { pcm, ...audioMeta } = audio;
-      audioRef.current = { pcm, sampleRate: audio.sampleRate };
-      setAudioInfo(audioMeta);
+        // Keep PCM only in ref (not React state) — large typed arrays in
+        // React state cause Safari to stall 10-12s during rendering.
+        const { pcm, ...audioMeta } = audio;
+        audioRef.current = { pcm, sampleRate: audio.sampleRate };
+        setAudioInfo(audioMeta);
 
-      setProcessing(true);
-      setStatus('Starting analysis...');
-      await analyzeFull(pcm, audio.sampleRate);
+        setProcessing(true);
+        setStatus('Starting analysis...');
+        await analyzeFull(pcm, audio.sampleRate);
+      }
     } catch (e) {
-      setError(String(e));
+      const msg = String(e);
+      if (msg.includes('device format')) {
+        setError('This text file format isn\'t recognized. Currently only shaknspin exports are supported.');
+      } else {
+        setError(msg);
+      }
     }
   }, []);
 
@@ -166,7 +190,7 @@ function App() {
 
     // If handles are at full-file position, restore full-file results
     // but re-run analysis so Python re-stashes full-file data for on-demand plots
-    const dur = audioInfo?.duration || 0;
+    const dur = audioInfo?.duration ?? fullResult?.metrics?.duration ?? 0;
     const isFullFile = startSec <= EPSILON && endSec >= dur - EPSILON;
     if (isFullFile) {
       setRegionResult(null);
@@ -236,7 +260,7 @@ function App() {
     const { pcm, sampleRate } = audioRef.current;
     setProcessing(true);
     setStatus('Re-analyzing...');
-    await analyzeFull(pcm, sampleRate, mergedOpts);
+    await analyzeFull(pcm, sampleRate, 'audio', mergedOpts);
   }, [analysisOpts]);
 
   const hasFile = !!audioInfo;
@@ -281,11 +305,11 @@ function App() {
         tUniform={fullResult?.plots?.dev_time?.t}
         deviationPct={fullResult?.plots?.dev_time?.deviation_pct}
         wfPeak2Sigma={fullResult?.metrics?.standard?.unweighted_peak?.value}
-        totalDuration={audioInfo?.duration}
+        totalDuration={audioInfo?.duration ?? fullResult?.metrics?.duration}
         harmonicOverlays={harmonicOverlays}
         processing={processing}
-        onMeasureRegion={handleMeasureRegion}
-        lastMeasuredRegion={lastMeasuredRegion}
+        onMeasureRegion={audioInfo?.inputType !== 'device' ? handleMeasureRegion : undefined}
+        lastMeasuredRegion={audioInfo?.inputType !== 'device' ? lastMeasuredRegion : undefined}
       />
 
       {/* Spectrum plot with peak selection */}

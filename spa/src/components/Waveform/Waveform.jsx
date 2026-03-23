@@ -351,18 +351,20 @@ export default function Waveform({
               </div>
             </Box>
 
-            {/* Handle overlays — OUTSIDE scroll wrapper */}
-            <LoopHandles
-              loopStart={loopStart}
-              loopEnd={loopEnd}
-              totalDuration={totalDuration}
-              containerWidth={containerWidth}
-              containerHeight={plotHeight}
-              timeToX={wfData.timeToX}
-              xToTime={wfData.xToTime}
-              gestureRef={gestureRef}
-              onLoopChange={handleLoopChange}
-            />
+            {/* Handle overlays — OUTSIDE scroll wrapper (audio input only) */}
+            {onMeasureRegion && (
+              <LoopHandles
+                loopStart={loopStart}
+                loopEnd={loopEnd}
+                totalDuration={totalDuration}
+                containerWidth={containerWidth}
+                containerHeight={plotHeight}
+                timeToX={wfData.timeToX}
+                xToTime={wfData.xToTime}
+                gestureRef={gestureRef}
+                onLoopChange={handleLoopChange}
+              />
+            )}
           </>}
         </Box>
       </Box>
@@ -377,41 +379,45 @@ export default function Waveform({
           gap: 0.5,
         }}
       >
-        {/* Left: loop controls */}
-        <Tooltip title="Set measurement region">
-          <span>
-            <IconButton
-              onClick={handleBracket}
-              size="small"
-              sx={{ fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1rem', px: 0.5, minWidth: 32 }}
-            >
-              []
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Reset to full file">
-          <span>
-            <IconButton
-              onClick={handleResetBracket}
-              disabled={isFullFile}
-              size="small"
-              sx={{ fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1rem', px: 0.5, minWidth: 32 }}
-            >
-              ][
-            </IconButton>
-          </span>
-        </Tooltip>
+        {/* Left: loop controls (audio input only) */}
+        {onMeasureRegion && (
+          <>
+            <Tooltip title="Set measurement region">
+              <span>
+                <IconButton
+                  onClick={handleBracket}
+                  size="small"
+                  sx={{ fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1rem', px: 0.5, minWidth: 32 }}
+                >
+                  []
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Reset to full file">
+              <span>
+                <IconButton
+                  onClick={handleResetBracket}
+                  disabled={isFullFile}
+                  size="small"
+                  sx={{ fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1rem', px: 0.5, minWidth: 32 }}
+                >
+                  ][
+                </IconButton>
+              </span>
+            </Tooltip>
 
-        <Button
-          variant="outlined"
-          size="small"
-          onClick={() => onMeasureRegion?.(loopStart, loopEnd)}
-          disabled={!measureEnabled}
-          startIcon={processing ? <CircularProgress size={14} /> : null}
-          sx={{ ml: 0.5 }}
-        >
-          {processing ? 'Measuring...' : 'Measure'}
-        </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => onMeasureRegion(loopStart, loopEnd)}
+              disabled={!measureEnabled}
+              startIcon={processing ? <CircularProgress size={14} /> : null}
+              sx={{ ml: 0.5 }}
+            >
+              {processing ? 'Measuring...' : 'Measure'}
+            </Button>
+          </>
+        )}
 
         {/* Spacer */}
         <Box sx={{ flex: 1 }} />
