@@ -55,6 +55,7 @@ export default function Waveform({
   lastMeasuredRegion = null,
 }) {
   const theme = useTheme();
+  const canMeasure = !!onMeasureRegion;
 
   // Resizable plot height — drag bottom border of card
   const { plotHeight, ResizeBar } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
@@ -68,9 +69,9 @@ export default function Waveform({
   const viewEndRef = useRef(viewEnd);
   viewEndRef.current = viewEnd;
 
-  // Loop handles
-  const [loopStart, setLoopStart] = useState(0);
-  const [loopEnd, setLoopEnd] = useState(totalDuration || 1);
+  // Loop handles — only used when measurement is supported
+  const [loopStart, setLoopStart] = useState(canMeasure ? 0 : null);
+  const [loopEnd, setLoopEnd] = useState(canMeasure ? (totalDuration || 1) : null);
 
   // Container width
   const [containerWidth, setContainerWidth] = useState(0);
@@ -86,10 +87,15 @@ export default function Waveform({
     if (totalDuration) {
       setViewStart(0);
       setViewEnd(totalDuration);
+    }
+    if (canMeasure && totalDuration) {
       setLoopStart(0);
       setLoopEnd(totalDuration);
+    } else {
+      setLoopStart(null);
+      setLoopEnd(null);
     }
-  }, [totalDuration]);
+  }, [totalDuration, canMeasure]);
 
   const hasData = !!(tUniform && deviationPct);
 
@@ -200,9 +206,9 @@ export default function Waveform({
     gestureRef.current = 'idle';
   }, [totalDuration]);
 
-  // --- Loop bracket controls ---
+  // --- Loop bracket controls (no-op when measurement not supported) ---
   const handleBracket = useCallback(() => {
-    if (!totalDuration) return;
+    if (!canMeasure || !totalDuration) return;
     const vs = viewStartRef.current;
     const ve = viewEndRef.current;
     const center = (vs + ve) / 2;
@@ -216,7 +222,7 @@ export default function Waveform({
   }, [totalDuration]);
 
   const handleResetBracket = useCallback(() => {
-    if (!totalDuration) return;
+    if (!canMeasure || !totalDuration) return;
     setLoopStart(0);
     setLoopEnd(totalDuration);
   }, [totalDuration]);
@@ -351,8 +357,8 @@ export default function Waveform({
               </div>
             </Box>
 
-            {/* Handle overlays — OUTSIDE scroll wrapper (audio input only) */}
-            {onMeasureRegion && (
+            {/* Handle overlays — OUTSIDE scroll wrapper (only when measurement supported) */}
+            {canMeasure && (
               <LoopHandles
                 loopStart={loopStart}
                 loopEnd={loopEnd}
@@ -379,8 +385,8 @@ export default function Waveform({
           gap: 0.5,
         }}
       >
-        {/* Left: loop controls (audio input only) */}
-        {onMeasureRegion && (
+        {/* Left: loop controls (only when measurement supported) */}
+        {canMeasure && (
           <>
             <Tooltip title="Set measurement region">
               <span>
