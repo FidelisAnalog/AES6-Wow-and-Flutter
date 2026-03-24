@@ -156,7 +156,7 @@ export default function AdvancedPanel({
       : 'Not detected';
 
   return (
-    <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+    <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5, fontSize: { xs: '0.75em', sm: '1em' }, '& .MuiToggleButton-root': { fontSize: { xs: '0.6rem', sm: '0.8rem' }, px: { xs: 1, sm: 1.5 } }, '& .MuiButton-root': { fontSize: { xs: '0.6rem', sm: '0.8rem' } }, '& .MuiTypography-root': { fontSize: { xs: '0.6rem', sm: 'inherit' } }, '& .MuiChip-root': { fontSize: { xs: '0.56rem', sm: '0.75rem' } }, '& .MuiInputBase-root': { fontSize: { xs: '0.6rem', sm: '0.8rem' } } }}>
       {/* Transport type */}
       <Box sx={rowSx}>
         <Typography variant="body2" color="text.secondary" sx={labelSx}>

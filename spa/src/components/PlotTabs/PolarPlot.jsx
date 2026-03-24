@@ -11,7 +11,7 @@ import { PEAK_COLORS } from '../Spectrum/peakColors.js';
 
 const N_TICKS = 20;
 
-export default function PolarPlot({ data, width, height }) {
+export default function PolarPlot({ data, width, height, polarLpHz }) {
   const divRef = useRef(null);
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
@@ -123,7 +123,13 @@ export default function PolarPlot({ data, width, height }) {
         annotations: [{
           text: '0.1%/div',
           xref: 'paper', yref: 'paper',
-          x: 1, y: 0, xref: 'paper', yref: 'paper', xanchor: 'right', yanchor: 'bottom', xshift: 30, yshift: -30,
+          x: 1, y: 0, xanchor: 'right', yanchor: 'bottom', xshift: 30, yshift: -30,
+          showarrow: false,
+          font: { size: 9, family: 'monospace', color: textColor },
+        }, {
+          text: `LPF: ${polarLpHz === 0 ? 'None' : `${polarLpHz} Hz`}`,
+          xref: 'paper', yref: 'paper',
+          x: 0, y: 0, xanchor: 'left', yanchor: 'bottom', xshift: -30, yshift: -30,
           showarrow: false,
           font: { size: 9, family: 'monospace', color: textColor },
         }],
@@ -137,7 +143,7 @@ export default function PolarPlot({ data, width, height }) {
       if (!initializedRef.current) return;
       // Only purge on unmount, not on data change
     };
-  }, [data, width, height, isDark, theme]);
+  }, [data, width, height, isDark, theme, polarLpHz]);
 
   // Purge on unmount
   useEffect(() => {

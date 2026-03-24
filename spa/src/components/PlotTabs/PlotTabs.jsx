@@ -27,7 +27,7 @@ const DEFAULT_POLAR_REVS = 2;
 const DEFAULT_TAB_HEIGHT = 640;
 const STORAGE_KEY_TAB_HEIGHT = 'plotTabsHeight';
 const STORAGE_KEY_POLAR_LP = 'polarLpHz';
-const POLAR_LP_OPTIONS = [0, 60, 100, 150, 200];
+const POLAR_LP_OPTIONS = [60, 100, 150, 200, 0];
 const DEFAULT_POLAR_LP = 60;
 
 export default function PlotTabs({ available, processing, onReanalyze, currentOpts, rpmInfo, fmBwInfo, inputType }) {
@@ -203,7 +203,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
               </Box>
               <Box ref={plotAreaRef} sx={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center', pt: isMobile ? 1 : 2 }}>
                 {plotCache.polar && squareSize > 0 && (
-                  <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} />
+                  <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} polarLpHz={polarLpHz} />
                 )}
               </Box>
             </Box>
