@@ -27,7 +27,13 @@ function App() {
   const [error, setError] = useState(null);
   const [errorTrace, setErrorTrace] = useState('');
   const audioRef = useRef(null); // keep PCM data for region re-analysis
-  const [analysisOpts, setAnalysisOpts] = useState({});
+  const [analysisOpts, setAnalysisOpts] = useState(() => {
+    try {
+      const pref = localStorage.getItem('fmBwPreference');
+      if (pref === 'aes_min') return { fm_bw: 'aes_min' };
+    } catch {}
+    return {};
+  });
 
   // Split result state: full-file vs region
   const [fullResult, setFullResult] = useState(null);
@@ -125,7 +131,7 @@ function App() {
 
         setProcessing(true);
         setStatus('Starting analysis...');
-        await analyzeFull(pcm, audio.sampleRate);
+        await analyzeFull(pcm, audio.sampleRate, 'audio', analysisOpts);
       }
     } catch (e) {
       const msg = String(e);
@@ -135,7 +141,7 @@ function App() {
         setError(msg);
       }
     }
-  }, []);
+  }, [analysisOpts]);
 
   // Auto-load from ?file=<URL> query param once Pyodide is ready
   const urlLoadedRef = useRef(false);
@@ -156,7 +162,7 @@ function App() {
         setAudioInfo(audioMeta);
         setProcessing(true);
         setStatus('Starting analysis...');
-        await analyzeFull(pcm, audio.sampleRate);
+        await analyzeFull(pcm, audio.sampleRate, 'audio', analysisOpts);
         // Strip all query params after successful load
         window.history.replaceState({}, '', window.location.pathname);
       } catch (e) {
@@ -326,6 +332,8 @@ function App() {
         onReanalyze={handleReanalyze}
         currentOpts={analysisOpts}
         rpmInfo={fullResult?.metrics?.rpm}
+        fmBwInfo={activeResult?.metrics?.fm_bw}
+        inputType={audioInfo?.inputType}
       />
     </Layout>
   );

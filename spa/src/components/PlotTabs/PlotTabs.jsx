@@ -26,8 +26,11 @@ const TAB_DEFS_BASE = [
 const DEFAULT_POLAR_REVS = 2;
 const DEFAULT_TAB_HEIGHT = 640;
 const STORAGE_KEY_TAB_HEIGHT = 'plotTabsHeight';
+const STORAGE_KEY_POLAR_LP = 'polarLpHz';
+const POLAR_LP_OPTIONS = [0, 60, 100, 150, 200];
+const DEFAULT_POLAR_LP = 60;
 
-export default function PlotTabs({ available, processing, onReanalyze, currentOpts, rpmInfo }) {
+export default function PlotTabs({ available, processing, onReanalyze, currentOpts, rpmInfo, fmBwInfo, inputType }) {
   const [activeTab, setActiveTab] = useState(null);
   const [plotCache, setPlotCache] = useState({});
   const [minimized, setMinimized] = useState(true);
@@ -42,6 +45,13 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
 
   const prevAvailableRef = useRef(null);
   const [polarRevs, setPolarRevs] = useState(DEFAULT_POLAR_REVS);
+  const [polarLpHz, setPolarLpHz] = useState(() => {
+    try {
+      const val = parseInt(localStorage.getItem(STORAGE_KEY_POLAR_LP), 10);
+      if (POLAR_LP_OPTIONS.includes(val)) return val;
+    } catch {}
+    return DEFAULT_POLAR_LP;
+  });
 
   const hasRpm = rpmInfo?.value != null;
   const tabs = useMemo(() =>
@@ -71,12 +81,12 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
     const revs = Math.min(polarRevs, maxRevs);
     if (revs !== polarRevs) setPolarRevs(revs);
     try {
-      const data = getPlotData('polar', { revolutions: revs });
+      const data = getPlotData('polar', { revolutions: revs, polar_lp: polarLpHz });
       if (data) setPlotCache(prev => ({ ...prev, polar: data }));
     } catch (e) {
       console.warn('[PlotTabs] polar auto-replot failed:', e);
     }
-  }, [available, activeTab]);
+  }, [available, activeTab, polarLpHz]);
 
 
   const handleRevsChange = useCallback((revs) => {
@@ -84,12 +94,28 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
     if (!available?.polar || !n) return;
     setPolarRevs(n);
     try {
-      const data = getPlotData('polar', { revolutions: n });
+      const data = getPlotData('polar', { revolutions: n, polar_lp: polarLpHz });
       if (data) setPlotCache(prev => ({ ...prev, polar: data }));
     } catch (e) {
       console.warn('[PlotTabs] polar fetch failed:', e);
     }
-  }, [available]);
+  }, [available, polarLpHz]);
+
+  const handlePolarLpChange = useCallback((val) => {
+    const n = Number(val);
+    if (!POLAR_LP_OPTIONS.includes(n)) return;
+    setPolarLpHz(n);
+    try { localStorage.setItem(STORAGE_KEY_POLAR_LP, String(n)); } catch {}
+    // Re-fetch polar if tab is open
+    if (available?.polar) {
+      try {
+        const data = getPlotData('polar', { revolutions: polarRevs, polar_lp: n });
+        if (data) setPlotCache(prev => ({ ...prev, polar: data }));
+      } catch (e) {
+        console.warn('[PlotTabs] polar LP re-fetch failed:', e);
+      }
+    }
+  }, [available, polarRevs]);
 
   const handleTabChange = useCallback((_, newTab) => {
     const tabId = tabs[newTab]?.id;
@@ -150,7 +176,16 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
       {!minimized && (
         <Box ref={containerRef} sx={{ flex: 1, overflow: 'hidden', minHeight: 0, pr: { xs: 1, sm: 2 } }}>
           {activeTab === 'advanced' && (
-            <AdvancedPanel currentOpts={currentOpts} onReanalyze={onReanalyze} rpmInfo={rpmInfo} />
+            <AdvancedPanel
+              currentOpts={currentOpts}
+              onReanalyze={onReanalyze}
+              rpmInfo={rpmInfo}
+              fmBwInfo={fmBwInfo}
+              inputType={inputType}
+              polarLpHz={polarLpHz}
+              polarLpOptions={POLAR_LP_OPTIONS}
+              onPolarLpChange={handlePolarLpChange}
+            />
           )}
 
           {activeTab === 'histogram' && (
