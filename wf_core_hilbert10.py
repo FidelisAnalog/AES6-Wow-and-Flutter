@@ -997,14 +997,16 @@ def _parse_device_data(text_data, fmt):
 
 def analyzeFull(data, sampleRate=None, inputType='audio',
                 rpm=None, motor_slots=None, motor_poles=None,
-                drive_ratio=1.0, fm_bw=None):
+                drive_ratio=1.0, fm_bw=None, channel=0):
     """
     Single entry point for all analysis. Sync wrapper — detects whether
     an event loop is running (Pyodide) and returns a coroutine for await,
     otherwise runs synchronously (CLI).
 
     Parameters:
-        data: PCM float64 array (audio) or text string (device)
+        data: PCM float64 array (audio) or text string (device).
+              May be mono or multi-channel. For multi-channel, the
+              channel parameter selects which channel to analyze.
         sampleRate: required for audio, ignored for device
         inputType: 'audio' or 'device'
         rpm: platter/transport RPM (optional). Enables polar plot and
@@ -1019,6 +1021,8 @@ def analyzeFull(data, sampleRate=None, inputType='audio',
         fm_bw: FM measurement bandwidth in Hz, or 'aes_min' for 200 Hz,
                or None (default) for max (0.4 × carrier).  Clamped to
                0.4 × carrier internally.
+        channel: channel index for multi-channel audio (default 0).
+                 Ignored for mono audio and device input.
 
     Returns structured result dict per SPA integration plan.
     """
@@ -1027,7 +1031,7 @@ def analyzeFull(data, sampleRate=None, inputType='audio',
     coro = _analyzeFull_async(data, sampleRate=sampleRate, inputType=inputType,
                                rpm=rpm, motor_slots=motor_slots,
                                motor_poles=motor_poles, drive_ratio=drive_ratio,
-                               fm_bw=fm_bw)
+                               fm_bw=fm_bw, channel=channel)
 
     # In Pyodide (or any running event loop), return the coroutine for await.
     # In CLI (no event loop), run synchronously.
@@ -1040,7 +1044,7 @@ def analyzeFull(data, sampleRate=None, inputType='audio',
 
 async def _analyzeFull_async(data, sampleRate=None, inputType='audio',
                               rpm=None, motor_slots=None, motor_poles=None,
-                              drive_ratio=1.0, fm_bw=None):
+                              drive_ratio=1.0, fm_bw=None, channel=0):
     """Async implementation of analyzeFull."""
     _clear_state()
 
@@ -1055,7 +1059,16 @@ async def _analyzeFull_async(data, sampleRate=None, inputType='audio',
     else:
         if sampleRate is None:
             raise ValueError("sampleRate is required for audio input")
-        return await _analyze_audio(data, sampleRate, fm_bw=fm_bw)
+        # Extract channel from multi-channel audio
+        arr = np.asarray(data, dtype=np.float64)
+        if arr.ndim > 1:
+            if channel >= arr.shape[1]:
+                raise ValueError(
+                    f"Requested channel {channel} but audio has "
+                    f"only {arr.shape[1]} channels"
+                )
+            arr = arr[:, channel]
+        return await _analyze_audio(arr, sampleRate, fm_bw=fm_bw)
 
 
 async def _analyze_audio(pcm_data, sample_rate, fm_bw=None):
@@ -1171,7 +1184,7 @@ async def _analyze_audio(pcm_data, sample_rate, fm_bw=None):
 
     # 8. Spectrum + peaks
     await _status("Computing spectrum...")
-    spec_max_freq = 0.4 * f_est if f_est > 0 else 50.0
+    spec_max_freq = lp_cut if lp_cut > 0 else 50.0
     spectrum = _compute_spectrum(deviation_pct, output_rate,
                                  max_freq=spec_max_freq)
 
