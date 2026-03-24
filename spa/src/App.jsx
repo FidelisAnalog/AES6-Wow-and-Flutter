@@ -59,6 +59,17 @@ function App() {
     return {};
   });
 
+  // Single analysis entry point for audio — ensures opts and UI state are always consistent
+  const analysisOptsRef = useRef(analysisOpts);
+  analysisOptsRef.current = analysisOpts;
+  const runAnalysis = useCallback((pcm, sampleRate, statusMsg, optsOverrides) => {
+    const opts = { ...analysisOptsRef.current, ...optsOverrides };
+    setProcessing(true);
+    setStatusIndicator('loading');
+    setStatusText(statusMsg);
+    return analyzeFull(pcm, sampleRate, 'audio', opts);
+  }, []);
+
   // Split result state: full-file vs region
   const [fullResult, setFullResult] = useState(null);
   const [regionResult, setRegionResult] = useState(null);
@@ -156,9 +167,7 @@ function App() {
         audioRef.current = { pcm, sampleRate: audio.sampleRate };
         setAudioInfo(audioMeta);
 
-        setProcessing(true); setStatusIndicator('loading');
-        setStatusText('Starting analysis...');
-        await analyzeFull(pcm, audio.sampleRate, 'audio', analysisOpts);
+        await runAnalysis(pcm, audio.sampleRate, 'Starting analysis...');
       }
     } catch (e) {
       const msg = String(e);
@@ -168,7 +177,7 @@ function App() {
         setError(msg);
       }
     }
-  }, [analysisOpts]);
+  }, [runAnalysis]);
 
   // Auto-load from ?file=<URL> query param once Pyodide is ready
   const urlLoadedRef = useRef(false);
@@ -187,9 +196,7 @@ function App() {
         const { pcm, ...audioMeta } = audio;
         audioRef.current = { pcm, sampleRate: audio.sampleRate };
         setAudioInfo(audioMeta);
-        setProcessing(true); setStatusIndicator('loading');
-        setStatusText('Starting analysis...');
-        await analyzeFull(pcm, audio.sampleRate, 'audio', analysisOpts);
+        await runAnalysis(pcm, audio.sampleRate, 'Starting analysis...');
         // Strip all query params after successful load
         window.history.replaceState({}, '', window.location.pathname);
       } catch (e) {
@@ -236,9 +243,7 @@ function App() {
       // Was on region — re-run full file to re-stash Python state
       const { pcm, sampleRate } = audioRef.current;
       isRegionMeasureRef.current = false;
-      setProcessing(true); setStatusIndicator('loading');
-      setStatusText('Restoring full-file analysis...');
-      analyzeFull(pcm, sampleRate, analysisOpts);
+      runAnalysis(pcm, sampleRate, 'Restoring full-file analysis...');
       return;
     }
 
@@ -249,14 +254,11 @@ function App() {
 
     isRegionMeasureRef.current = true;
     pendingRegionRef.current = [startSec, endSec];
-    setProcessing(true); setStatusIndicator('loading');
-    setStatusText('Re-measuring region...');
     // Pass full-file detected RPM so wf_core doesn't re-detect on short slice
     const detectedRpm = fullResult?.metrics?.rpm?.value;
-    const regionOpts = { ...analysisOpts };
-    if (detectedRpm && !regionOpts.rpm) regionOpts.rpm = detectedRpm;
-    analyzeFull(slice, sampleRate, regionOpts);
-  }, [audioInfo, fullResult, analysisOpts]);
+    const regionOverrides = detectedRpm && !analysisOpts.rpm ? { rpm: detectedRpm } : {};
+    runAnalysis(slice, sampleRate, 'Re-measuring region...', regionOverrides);
+  }, [audioInfo, fullResult, runAnalysis]);
 
   // Harmonic overlay handler — called when spectrum peak selection changes
   const handleHarmonicSelect = useCallback((selectedFreqs, selectedIndices) => {
@@ -285,16 +287,13 @@ function App() {
     }
   }, [lastMeasuredRegion, regionResult, fullResult]);
 
-  // Re-analyze with additional params (e.g. RPM for polar plot)
+  // Re-analyze with additional params (e.g. RPM, fm_bw from config tab)
   const handleReanalyze = useCallback(async (opts) => {
     if (!audioRef.current) return;
-    const mergedOpts = { ...analysisOpts, ...opts };
-    setAnalysisOpts(mergedOpts);
+    setAnalysisOpts(prev => ({ ...prev, ...opts }));
     const { pcm, sampleRate } = audioRef.current;
-    setProcessing(true); setStatusIndicator('loading');
-    setStatusText('Re-analyzing...');
-    await analyzeFull(pcm, sampleRate, 'audio', mergedOpts);
-  }, [analysisOpts]);
+    await runAnalysis(pcm, sampleRate, 'Re-analyzing...', opts);
+  }, [runAnalysis]);
 
   const hasFile = !!audioInfo;
 
