@@ -11,9 +11,11 @@
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { Box, Paper, IconButton, Tooltip, Typography, useTheme } from '@mui/material';
+import RemoveIcon from '@mui/icons-material/Remove';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
+import useCollapsible from '../../hooks/useCollapsible.js';
 import SpectrumPlot from './SpectrumPlot.jsx';
 import SpectrumOverview from './SpectrumOverview.jsx';
 import FreqAxis, { AXIS_HEIGHT } from './FreqAxis.jsx';
@@ -27,6 +29,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 
 const DEFAULT_HEIGHT = 240;
 const STORAGE_KEY = 'spectrumHeight';
+const COLLAPSE_KEY = 'spectrumCollapsed';
 const AXIS_WIDTH_DESKTOP = 52;
 const AXIS_WIDTH_MOBILE = 36;
 const EPSILON = 0.001;
@@ -43,6 +46,7 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const AXIS_WIDTH = isMobile ? AXIS_WIDTH_MOBILE : AXIS_WIDTH_DESKTOP;
+  const { collapsed, toggleCollapsed } = useCollapsible(COLLAPSE_KEY);
 
   // Resizable plot height — drag bottom border of card
   const { plotHeight, ResizeBar } = useResizableHeight(STORAGE_KEY, DEFAULT_HEIGHT);
@@ -245,167 +249,189 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
   if (!hasData) return null;
 
   return (
-    <Paper sx={{ pt: { xs: 1, sm: 2 }, px: { xs: 1, sm: 2 }, pb: 0, width: '100%', overflow: 'hidden' }}>
-      {/* Overview bar */}
-      <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
-        <SpectrumOverview
-          freqs={freqs}
-          amplitude={amplitude}
-          dataFMin={dataFMin}
-          dataFMax={dataFMax}
-          viewFMin={viewFMin}
-          viewFMax={viewFMax}
-          logAmpScale={logAmpScale}
-          onViewChange={handleViewChange}
-          onGestureStart={handleOverviewGestureStart}
-          onGestureEnd={handleOverviewGestureEnd}
-        />
-      </Box>
-
-      {/* Main spectrum area: Y-axis + scrollable canvas */}
-      <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
-        {/* Y-axis label — rotated, positioned in card's left padding, centered on plot canvas */}
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{
-            position: 'absolute',
-            left: -14,
-            top: plotHeight / 2,
-            transform: 'rotate(-90deg) translateX(-50%)',
-            transformOrigin: '0 0',
-            whiteSpace: 'nowrap',
-            fontSize: '0.55rem',
-            opacity: 0.5,
-            letterSpacing: 0.3,
-            display: { xs: 'none', sm: 'block' },
-          }}
-        >
-          Deviation (% RMS/√Hz)
-        </Typography>
-        <AmplitudeAxis
-          ampMin={spData.ampMin}
-          ampMax={spData.ampMax}
-          height={plotHeight}
-          logScale={logAmpScale}
-          ampToY={spData.ampToY}
-          width={AXIS_WIDTH}
-        />
-
+    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+      {/* Collapsed bar — always rendered, clickable to expand */}
+      {collapsed && (
         <Box
-          ref={containerRef}
+          onClick={toggleCollapsed}
+          sx={{ display: 'flex', alignItems: 'center', minHeight: 36, cursor: 'pointer', px: 2 }}
+        >
+          <Typography sx={{ fontSize: '0.8rem' }} color="text.secondary">
+            Spectrum
+          </Typography>
+        </Box>
+      )}
+
+      {/* Expanded content — hidden via display:none to preserve DOM, refs, gesture listeners */}
+      <Box sx={{ display: collapsed ? 'none' : 'block', pt: { xs: 1, sm: 2 }, px: { xs: 1, sm: 2 }, pb: 0 }}>
+        {/* Minimize control — matches PlotTabs: flush top, 36px bar height */}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', height: 36, alignItems: 'center', mt: { xs: -1, sm: -2 } }}>
+          <IconButton size="small" onClick={toggleCollapsed} sx={{ mr: -0.5 }}>
+            <RemoveIcon fontSize="small" />
+          </IconButton>
+        </Box>
+
+        {/* Overview bar — full width, not shrunk */}
+        <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
+          <SpectrumOverview
+            freqs={freqs}
+            amplitude={amplitude}
+            dataFMin={dataFMin}
+            dataFMax={dataFMax}
+            viewFMin={viewFMin}
+            viewFMax={viewFMax}
+            logAmpScale={logAmpScale}
+            onViewChange={handleViewChange}
+            onGestureStart={handleOverviewGestureStart}
+            onGestureEnd={handleOverviewGestureEnd}
+          />
+        </Box>
+
+        {/* Main spectrum area: Y-axis + scrollable canvas */}
+        <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
+          {/* Y-axis label — rotated, positioned in card's left padding, centered on plot canvas */}
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{
+              position: 'absolute',
+              left: -14,
+              top: plotHeight / 2,
+              transform: 'rotate(-90deg) translateX(-50%)',
+              transformOrigin: '0 0',
+              whiteSpace: 'nowrap',
+              fontSize: '0.55rem',
+              opacity: 0.5,
+              letterSpacing: 0.3,
+              display: { xs: 'none', sm: 'block' },
+            }}
+          >
+            Deviation (% RMS/√Hz)
+          </Typography>
+          <AmplitudeAxis
+            ampMin={spData.ampMin}
+            ampMax={spData.ampMax}
+            height={plotHeight}
+            logScale={logAmpScale}
+            ampToY={spData.ampToY}
+            width={AXIS_WIDTH}
+          />
+
+          <Box
+            ref={containerRef}
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              position: 'relative',
+              userSelect: 'none',
+              WebkitTapHighlightColor: 'transparent',
+              overscrollBehaviorX: 'none',
+              touchAction: 'pan-y',
+              cursor: 'pointer',
+              border: `1px solid ${theme.palette.divider}`,
+              borderTop: 'none',
+              minHeight: totalHeight,
+            }}
+          >
+            {containerWidth > 0 && (
+              <Box
+                ref={scrollRef}
+                sx={{
+                  width: '100%',
+                  height: totalHeight,
+                  overflowX: isZoomed ? 'scroll' : 'hidden',
+                  overflowY: 'hidden',
+                  overscrollBehaviorX: 'none',
+                  WebkitOverflowScrolling: 'touch',
+                  touchAction: isZoomed ? 'pan-x pan-y' : 'pan-y',
+                  scrollbarWidth: 'none',
+                  '&::-webkit-scrollbar': { display: 'none' },
+                }}
+              >
+                <div style={{ width: spacerWidth, height: totalHeight }}>
+                  <SpectrumPlot
+                    freqs={freqs}
+                    amplitude={amplitude}
+                    peaks={peaks}
+                    selectedPeakIndices={selectedPeakIndices}
+                    startIdx={spData.startIdx}
+                    endIdx={spData.endIdx}
+                    ampMin={spData.ampMin}
+                    ampMax={spData.ampMax}
+                    freqToX={spData.freqToX}
+                    ampToY={spData.ampToY}
+                    width={containerWidth}
+                    height={plotHeight}
+                    logAmpScale={logAmpScale}
+                    onResetZoom={resetZoom}
+                  />
+
+                  <FreqAxis
+                    viewFMin={viewFMin}
+                    viewFMax={viewFMax}
+                    width={containerWidth}
+                  />
+                </div>
+              </Box>
+            )}
+          </Box>
+        </Box>
+
+        {/* Peak chips — disabled, kept for future lissajous wiring */}
+        {/* <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
+          <PeakChips
+            peaks={peaks}
+            selectedPeakIndices={selectedPeakIndices}
+            onTogglePeak={handleTogglePeak}
+          />
+        </Box> */}
+
+        {/* Toolbar — scale toggle + zoom controls */}
+        <Box
           sx={{
-            flex: 1,
-            minWidth: 0,
-            position: 'relative',
-            userSelect: 'none',
-            WebkitTapHighlightColor: 'transparent',
-            overscrollBehaviorX: 'none',
-            touchAction: 'pan-y',
-            cursor: 'pointer',
-            border: `1px solid ${theme.palette.divider}`,
-            borderTop: 'none',
-            minHeight: totalHeight,
+            ml: `${AXIS_WIDTH}px`,
+            mt: 0.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
           }}
         >
-          {containerWidth > 0 && (
-            <Box
-              ref={scrollRef}
-              sx={{
-                width: '100%',
-                height: totalHeight,
-                overflowX: isZoomed ? 'scroll' : 'hidden',
-                overflowY: 'hidden',
-                overscrollBehaviorX: 'none',
-                WebkitOverflowScrolling: 'touch',
-                touchAction: isZoomed ? 'pan-x pan-y' : 'pan-y',
-                scrollbarWidth: 'none',
-                '&::-webkit-scrollbar': { display: 'none' },
-              }}
+          <Tooltip title={logAmpScale ? 'Switch to linear scale' : 'Switch to log (dB) scale'}>
+            <IconButton
+              onClick={() => setLogAmpScale(prev => !prev)}
+              size="small"
+              sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 'bold', minWidth: 32 }}
             >
-              <div style={{ width: spacerWidth, height: totalHeight }}>
-                <SpectrumPlot
-                  freqs={freqs}
-                  amplitude={amplitude}
-                  peaks={peaks}
-                  selectedPeakIndices={selectedPeakIndices}
-                  startIdx={spData.startIdx}
-                  endIdx={spData.endIdx}
-                  ampMin={spData.ampMin}
-                  ampMax={spData.ampMax}
-                  freqToX={spData.freqToX}
-                  ampToY={spData.ampToY}
-                  width={containerWidth}
-                  height={plotHeight}
-                  logAmpScale={logAmpScale}
-                  onResetZoom={resetZoom}
-                />
+              {logAmpScale ? 'LIN' : 'LOG'}
+            </IconButton>
+          </Tooltip>
 
-                <FreqAxis
-                  viewFMin={viewFMin}
-                  viewFMax={viewFMax}
-                  width={containerWidth}
-                />
-              </div>
-            </Box>
-          )}
+          <Box sx={{ flex: 1 }} />
+
+          <Tooltip title="Zoom in (+)">
+            <span>
+              <IconButton onClick={zoomIn} disabled={isMaxZoom} size="small">
+                <ZoomInIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Zoom out (-)">
+            <span>
+              <IconButton onClick={zoomOut} disabled={!isZoomed} size="small">
+                <ZoomOutIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Reset zoom (0)">
+            <span>
+              <IconButton onClick={resetZoom} disabled={!isZoomed} size="small">
+                <ZoomOutMapIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Box>
+        <ResizeBar />
       </Box>
-
-      {/* Peak chips — disabled, kept for future lissajous wiring */}
-      {/* <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
-        <PeakChips
-          peaks={peaks}
-          selectedPeakIndices={selectedPeakIndices}
-          onTogglePeak={handleTogglePeak}
-        />
-      </Box> */}
-
-      {/* Toolbar — scale toggle + zoom controls */}
-      <Box
-        sx={{
-          ml: `${AXIS_WIDTH}px`,
-          mt: 0.5,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.5,
-        }}
-      >
-        <Tooltip title={logAmpScale ? 'Switch to linear scale' : 'Switch to log (dB) scale'}>
-          <IconButton
-            onClick={() => setLogAmpScale(prev => !prev)}
-            size="small"
-            sx={{ fontFamily: 'monospace', fontSize: '0.75rem', fontWeight: 'bold', minWidth: 32 }}
-          >
-            {logAmpScale ? 'LIN' : 'LOG'}
-          </IconButton>
-        </Tooltip>
-
-        <Box sx={{ flex: 1 }} />
-
-        <Tooltip title="Zoom in (+)">
-          <span>
-            <IconButton onClick={zoomIn} disabled={isMaxZoom} size="small">
-              <ZoomInIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Zoom out (-)">
-          <span>
-            <IconButton onClick={zoomOut} disabled={!isZoomed} size="small">
-              <ZoomOutIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Reset zoom (0)">
-          <span>
-            <IconButton onClick={resetZoom} disabled={!isZoomed} size="small">
-              <ZoomOutMapIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Box>
-      <ResizeBar />
     </Paper>
   );
 }
