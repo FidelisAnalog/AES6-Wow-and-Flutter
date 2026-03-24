@@ -28,11 +28,11 @@ function StatusDot({ status }) {
   return (
     <Box sx={{
       position: 'absolute',
-      left: { xs: 4, sm: 6 },
-      top: { xs: -1, sm: -1 },
+      left: { xs: 9, sm: 6 },
+      top: { xs: 2, sm: -1 },
       mt: { xs: '4px', sm: '5px' },
-      width: { xs: 8, sm: 11 },
-      height: { xs: 8, sm: 11 },
+      width: { xs: 9, sm: 11 },
+      height: { xs: 9, sm: 11 },
       borderRadius: '50%',
       backgroundColor: color,
     }} />
@@ -304,7 +304,7 @@ function App() {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Box sx={{ position: 'relative', pl: '3ch', flex: 1 }}>
           {processing
-            ? <CircularProgress size={14} sx={{ position: 'absolute', left: { xs: 2, sm: 4 }, top: { xs: -1, sm: -1 }, mt: { xs: '3px', sm: '4px' } }} />
+            ? <CircularProgress size={14} sx={{ position: 'absolute', left: { xs: 9, sm: 6 }, top: { xs: 2, sm: -1 }, mt: { xs: '4px', sm: '5px' } }} />
             : statusIndicator !== 'loading' && <StatusDot status={statusIndicator} />
           }
           <Typography ref={statusRef} variant="body2" color="text.secondary">
