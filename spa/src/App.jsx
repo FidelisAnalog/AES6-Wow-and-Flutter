@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Typography, CircularProgress, Box } from '@mui/material';
+import { Typography, CircularProgress, Box, useTheme } from '@mui/material';
 import Layout from './components/Layout/Layout.jsx';
 import FileInput from './components/FileInput/FileInput.jsx';
 import ErrorDisplay from './components/ErrorDisplay.jsx';
@@ -17,12 +17,36 @@ import {
 
 const EPSILON = 0.001;
 
+/**
+ * Health indicator dot — occupies same space as the spinner.
+ * status: 'ok' | 'warning' | 'error'
+ */
+function StatusDot({ status }) {
+  const theme = useTheme();
+  const colors = theme.palette.statusIndicator;
+  const color = colors[status] ?? colors.ok;
+  return (
+    <Box sx={{
+      position: 'absolute',
+      left: { xs: 4, sm: 6 },
+      top: { xs: -1, sm: -1 },
+      mt: { xs: '4px', sm: '5px' },
+      width: { xs: 8, sm: 11 },
+      height: { xs: 8, sm: 11 },
+      borderRadius: '50%',
+      backgroundColor: color,
+    }} />
+  );
+}
+
 function App() {
   const { file: fileUrl } = useQueryParams();
   const [pyReady, setPyReady] = useState(false);
-  const [status, setStatus] = useState('Loading Python runtime...');
+  const [statusText, setStatusText] = useState('Loading Python runtime...');
   const statusRef = useRef(null); // direct DOM updates during analysis to avoid re-renders
   const [processing, setProcessing] = useState(false);
+  // Health: 'loading' (init/processing), 'ok' (ready/complete), 'warning' (future), 'error'
+  const [statusIndicator, setStatusIndicator] = useState('loading');
   const [audioInfo, setAudioInfo] = useState(null);
   const [error, setError] = useState(null);
   const [errorTrace, setErrorTrace] = useState('');
@@ -58,7 +82,8 @@ function App() {
       if (statusRef.current) statusRef.current.textContent = msg;
       if (msg === 'Ready') {
         setPyReady(true);
-        setStatus('Ready');
+        setStatusText('Ready');
+        setStatusIndicator('ok');
       }
     });
 
@@ -74,7 +99,8 @@ function App() {
         setLastMeasuredRegion(null);
       }
       setProcessing(false);
-      setStatus('Analysis complete');
+      setStatusText('Analysis complete');
+      setStatusIndicator('ok');
       if (statusRef.current) statusRef.current.textContent = 'Analysis complete';
     });
 
@@ -82,6 +108,7 @@ function App() {
       setError(msg);
       setErrorTrace(traceback);
       setProcessing(false);
+      setStatusIndicator('error');
       isRegionMeasureRef.current = false;
       pendingRegionRef.current = null;
     });
@@ -106,7 +133,7 @@ function App() {
 
     try {
       if (isText) {
-        setStatus('Reading text file...');
+        setStatusText('Reading text file...');
         const text = await file.text();
         audioRef.current = null;
         setAudioInfo({
@@ -116,11 +143,11 @@ function App() {
           duration: null,
           inputType: 'device',
         });
-        setProcessing(true);
-        setStatus('Starting analysis...');
+        setProcessing(true); setStatusIndicator('loading');
+        setStatusText('Starting analysis...');
         await analyzeFull(text, null, 'device');
       } else {
-        setStatus('Loading file...');
+        setStatusText('Loading file...');
         const audio = await loadAudioFile(file);
 
         // Keep PCM only in ref (not React state) — large typed arrays in
@@ -129,8 +156,8 @@ function App() {
         audioRef.current = { pcm, sampleRate: audio.sampleRate };
         setAudioInfo(audioMeta);
 
-        setProcessing(true);
-        setStatus('Starting analysis...');
+        setProcessing(true); setStatusIndicator('loading');
+        setStatusText('Starting analysis...');
         await analyzeFull(pcm, audio.sampleRate, 'audio', analysisOpts);
       }
     } catch (e) {
@@ -155,19 +182,19 @@ function App() {
       setRegionResult(null);
       setLastMeasuredRegion(null);
       try {
-        setStatus('Fetching file from URL...');
+        setStatusText('Fetching file from URL...');
         const audio = await loadAudioFromUrl(fileUrl);
         const { pcm, ...audioMeta } = audio;
         audioRef.current = { pcm, sampleRate: audio.sampleRate };
         setAudioInfo(audioMeta);
-        setProcessing(true);
-        setStatus('Starting analysis...');
+        setProcessing(true); setStatusIndicator('loading');
+        setStatusText('Starting analysis...');
         await analyzeFull(pcm, audio.sampleRate, 'audio', analysisOpts);
         // Strip all query params after successful load
         window.history.replaceState({}, '', window.location.pathname);
       } catch (e) {
         setError(String(e));
-        setStatus('URL load failed');
+        setStatusText('URL load failed');
       }
     })();
   }, [pyReady, fileUrl]);
@@ -209,8 +236,8 @@ function App() {
       // Was on region — re-run full file to re-stash Python state
       const { pcm, sampleRate } = audioRef.current;
       isRegionMeasureRef.current = false;
-      setProcessing(true);
-      setStatus('Restoring full-file analysis...');
+      setProcessing(true); setStatusIndicator('loading');
+      setStatusText('Restoring full-file analysis...');
       analyzeFull(pcm, sampleRate, analysisOpts);
       return;
     }
@@ -222,8 +249,8 @@ function App() {
 
     isRegionMeasureRef.current = true;
     pendingRegionRef.current = [startSec, endSec];
-    setProcessing(true);
-    setStatus('Re-measuring region...');
+    setProcessing(true); setStatusIndicator('loading');
+    setStatusText('Re-measuring region...');
     // Pass full-file detected RPM so wf_core doesn't re-detect on short slice
     const detectedRpm = fullResult?.metrics?.rpm?.value;
     const regionOpts = { ...analysisOpts };
@@ -264,8 +291,8 @@ function App() {
     const mergedOpts = { ...analysisOpts, ...opts };
     setAnalysisOpts(mergedOpts);
     const { pcm, sampleRate } = audioRef.current;
-    setProcessing(true);
-    setStatus('Re-analyzing...');
+    setProcessing(true); setStatusIndicator('loading');
+    setStatusText('Re-analyzing...');
     await analyzeFull(pcm, sampleRate, 'audio', mergedOpts);
   }, [analysisOpts]);
 
@@ -275,10 +302,15 @@ function App() {
     <Layout>
       {/* Status row — with inline file chooser after first load */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {processing && <CircularProgress size={14} />}
-        <Typography ref={statusRef} variant="body2" color="text.secondary" sx={{ flex: 1 }}>
-          {status}
-        </Typography>
+        <Box sx={{ position: 'relative', pl: '3ch', flex: 1 }}>
+          {processing
+            ? <CircularProgress size={14} sx={{ position: 'absolute', left: { xs: 2, sm: 4 }, top: { xs: -1, sm: -1 }, mt: { xs: '3px', sm: '4px' } }} />
+            : statusIndicator !== 'loading' && <StatusDot status={statusIndicator} />
+          }
+          <Typography ref={statusRef} variant="body2" color="text.secondary">
+            {statusText}
+          </Typography>
+        </Box>
         {hasFile && <FileInput onFileSelected={handleFile} disabled={!pyReady} compact />}
       </Box>
 

@@ -20,6 +20,12 @@ export const darkPalette = {
   info: { main: '#29b6f6' },
   success: { main: '#66bb6a' },
   divider: 'rgba(255,255,255,0.12)',
+  // Health indicator dot
+  statusIndicator: {
+    ok: '#66bb6a',
+    warning: '#ffa726',
+    error: '#f44336',
+  },
   // Custom plot/waveform colors — consumed by future chart components
   waveform: {
     background: '#1a1a1a',
@@ -72,6 +78,12 @@ export const lightPalette = {
   info: { main: '#0277bd' },
   success: { main: '#2e7d32' },
   inputBackground: '#ffffff',
+  // Health indicator dot
+  statusIndicator: {
+    ok: '#2e7d32',
+    warning: '#e65100',
+    error: '#d32f2f',
+  },
   divider: 'rgba(0,0,0,0.15)',
   waveform: {
     background: '#ffffff',              // plot canvas — white

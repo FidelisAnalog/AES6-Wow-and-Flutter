@@ -45,6 +45,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
 
   const prevAvailableRef = useRef(null);
   const [polarRevs, setPolarRevs] = useState(DEFAULT_POLAR_REVS);
+  const [polarLayout, setPolarLayout] = useState(null);
   const [polarLpHz, setPolarLpHz] = useState(() => {
     try {
       const val = parseInt(localStorage.getItem(STORAGE_KEY_POLAR_LP), 10);
@@ -66,6 +67,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
       prevAvailableRef.current = available;
       setPlotCache({});
       setPolarRevs(DEFAULT_POLAR_REVS);
+      setPolarLayout(null);
       if (isNewFile) {
         setActiveTab(null);
         setMinimized(true);
@@ -203,7 +205,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
               </Box>
               <Box ref={plotAreaRef} sx={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center', pt: isMobile ? 1 : 2 }}>
                 {plotCache.polar && squareSize > 0 && (
-                  <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} polarLpHz={polarLpHz} />
+                  <PolarPlot data={plotCache.polar} width={squareSize} height={squareSize} polarLpHz={polarLpHz} savedLayout={polarLayout} onLayoutChange={setPolarLayout} />
                 )}
               </Box>
             </Box>

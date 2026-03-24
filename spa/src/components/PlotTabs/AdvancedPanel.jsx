@@ -43,7 +43,7 @@ export default function AdvancedPanel({
 
   // FM BW selection — 'max', 'aes_min', or numeric Hz string
   const [fmBwMode, setFmBwMode] = useState(() => {
-    try { return localStorage.getItem(FM_BW_STORAGE_KEY) || 'max'; } catch { return 'max'; }
+    try { return localStorage.getItem(FM_BW_STORAGE_KEY) || 'aes_min'; } catch { return 'aes_min'; }
   });
   const [fmBwCustom, setFmBwCustom] = useState(''); // numeric Hz from options dropdown
 
@@ -274,11 +274,11 @@ export default function AdvancedPanel({
               onChange={handleFmBwMode}
               size="small"
             >
-              <ToggleButton value="max" sx={{ textTransform: 'none', px: 1.5, py: 0.25, fontSize: '0.8rem' }}>
-                Max
-              </ToggleButton>
               <ToggleButton value="aes_min" sx={{ textTransform: 'none', px: 1.5, py: 0.25, fontSize: '0.8rem' }}>
                 AES Min (200 Hz)
+              </ToggleButton>
+              <ToggleButton value="max" sx={{ textTransform: 'none', px: 1.5, py: 0.25, fontSize: '0.8rem' }}>
+                Max
               </ToggleButton>
             </ToggleButtonGroup>
           </Box>

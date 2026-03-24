@@ -11,7 +11,7 @@ import { PEAK_COLORS } from '../Spectrum/peakColors.js';
 
 const N_TICKS = 20;
 
-export default function PolarPlot({ data, width, height, polarLpHz }) {
+export default function PolarPlot({ data, width, height, polarLpHz, savedLayout, onLayoutChange }) {
   const divRef = useRef(null);
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
@@ -136,6 +136,9 @@ export default function PolarPlot({ data, width, height, polarLpHz }) {
       };
 
       Plotly.react(div, traces, layout, { displayModeBar: false, responsive: false });
+      if (savedLayout) {
+        Plotly.relayout(div, savedLayout);
+      }
       initializedRef.current = true;
     }
 
@@ -145,11 +148,27 @@ export default function PolarPlot({ data, width, height, polarLpHz }) {
     };
   }, [data, width, height, isDark, theme, polarLpHz]);
 
-  // Purge on unmount
+  // Capture layout changes live via plotly_relayout event
+  const onLayoutChangeRef = useRef(onLayoutChange);
+  onLayoutChangeRef.current = onLayoutChange;
   useEffect(() => {
+    const div = divRef.current;
+    if (!div) return;
+    const handler = (update) => {
+      // Plotly fires relayout with flattened keys on user interaction
+      const saved = {};
+      for (const key of Object.keys(update)) {
+        if (key.startsWith('polar.')) saved[key] = update[key];
+      }
+      if (Object.keys(saved).length > 0) {
+        onLayoutChangeRef.current?.(saved);
+      }
+    };
+    div.on('plotly_relayout', handler);
     return () => {
-      if (divRef.current) {
-        Plotly.purge(divRef.current);
+      div.removeAllListeners?.('plotly_relayout');
+      if (initializedRef.current) {
+        Plotly.purge(div);
         initializedRef.current = false;
       }
     };
