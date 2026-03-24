@@ -164,7 +164,7 @@ export default function PlotTabs({ available, processing, onReanalyze, currentOp
             <Tab
               key={t.id}
               label={t.label}
-              sx={{ minHeight: 36, textTransform: 'none', fontSize: '0.8rem' }}
+              sx={{ minHeight: 36, py: '10px', textTransform: 'none', fontSize: '0.8rem' }}
             />
           ))}
         </Tabs>
