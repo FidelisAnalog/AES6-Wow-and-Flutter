@@ -4,7 +4,8 @@ import { useThemeMode } from '../../theme/index.js';
 
 export default function Header() {
   const { mode, toggleTheme } = useThemeMode();
-  const logoSrc = mode === 'dark' ? '/logo-dark.svg' : '/logo-light.svg';
+  const base = import.meta.env.BASE_URL || '/';
+  const logoSrc = `${base}logo-${mode === 'dark' ? 'dark' : 'light'}.svg`;
 
   return (
     <Box
@@ -18,7 +19,7 @@ export default function Header() {
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Box component="img" src={logoSrc} alt="Fidelis Analog" sx={{ height: { xs: 48, sm: 58 } }} />
+        <Box component="img" src={logoSrc} alt="" sx={{ height: { xs: 48, sm: 58 } }} />
         <Typography variant="h5" component="h1" sx={{ fontWeight: 600, mb: { xs: '1.5px', sm: '1px' }, fontSize: { xs: '1.251rem', sm: '1.5rem' } }}>
           W&amp;F Analyzer
         </Typography>
