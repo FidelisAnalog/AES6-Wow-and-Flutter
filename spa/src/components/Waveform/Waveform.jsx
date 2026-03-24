@@ -16,9 +16,11 @@
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { Box, Paper, Button, IconButton, Tooltip, CircularProgress, Typography, useTheme } from '@mui/material';
+import RemoveIcon from '@mui/icons-material/Remove';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
+import useCollapsible from '../../hooks/useCollapsible.js';
 import WaveformMain from './WaveformMain.jsx';
 import WaveformOverview from './WaveformOverview.jsx';
 import LoopHandles from './LoopHandles.jsx';
@@ -32,6 +34,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 
 const DEFAULT_HEIGHT = 240;
 const STORAGE_KEY = 'waveformHeight';
+const COLLAPSE_KEY = 'waveformCollapsed';
 const AXIS_WIDTH_DESKTOP = 52;
 const AXIS_WIDTH_MOBILE = 36;
 const EPSILON = 0.001;
@@ -59,6 +62,7 @@ export default function Waveform({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const AXIS_WIDTH = isMobile ? AXIS_WIDTH_MOBILE : AXIS_WIDTH_DESKTOP;
+  const { collapsed, toggleCollapsed } = useCollapsible(COLLAPSE_KEY);
   const canMeasure = !!onMeasureRegion;
 
   // Resizable plot height — drag bottom border of card
@@ -250,120 +254,141 @@ export default function Waveform({
   if (!hasData) return null;
 
   return (
-    <Paper sx={{ pt: { xs: 1, sm: 2 }, px: { xs: 1, sm: 2 }, pb: 0, width: '100%', overflow: 'hidden' }}>
-      {/* Overview bar — above main view */}
-      <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
-        <WaveformOverview
-          tUniform={tUniform}
-          deviationPct={deviationPct}
-          totalDuration={totalDuration}
-          viewStart={viewStart}
-          viewEnd={viewEnd}
-          wfPeak2Sigma={wfPeak2Sigma}
-          loopStart={loopStart}
-          loopEnd={loopEnd}
-          onViewChange={handleViewChange}
-          onGestureStart={handleOverviewGestureStart}
-          onGestureEnd={handleOverviewGestureEnd}
-        />
-      </Box>
-
-      {/* Main waveform area: Y-axis + scrollable canvas + handle overlays */}
-      <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
-        {/* Y-axis label — rotated, positioned in card's left padding, centered on plot canvas */}
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{
-            position: 'absolute',
-            left: -14,
-            top: plotHeight / 2,
-            transform: 'rotate(-90deg) translateX(-50%)',
-            transformOrigin: '0 0',
-            whiteSpace: 'nowrap',
-            fontSize: '0.55rem',
-            opacity: 0.5,
-            letterSpacing: 0.3,
-            display: { xs: 'none', sm: 'block' },
-          }}
-        >
-          Speed Deviation (%)
-        </Typography>
-        {/* Y-axis */}
-        <DeviationAxis
-          yMin={wfData.yMin}
-          yMax={wfData.yMax}
-          height={plotHeight}
-          width={AXIS_WIDTH}
-        />
-
-        {/* Main area container — holds scroll wrapper and handle overlays */}
+    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+      {/* Collapsed bar */}
+      {collapsed && (
         <Box
-          ref={containerRef}
-          data-waveform-container
-          sx={{
-            flex: 1,
-            minWidth: 0,
-            position: 'relative',
-            userSelect: 'none',
-            WebkitTapHighlightColor: 'transparent',
-            overscrollBehaviorX: 'none',
-            touchAction: 'pan-y',
-            cursor: 'pointer',
-            border: `1px solid ${theme.palette.divider}`,
-            borderTop: 'none',
-            minHeight: totalHeight,
-          }}
+          onClick={toggleCollapsed}
+          sx={{ display: 'flex', alignItems: 'center', minHeight: 36, cursor: 'pointer', px: 2 }}
         >
-          {containerWidth > 0 && <>
-            {/* Scrollable wrapper — provides native touch momentum on iOS */}
-            <Box
-              ref={scrollRef}
-              sx={{
-                width: '100%',
-                height: totalHeight,
-                overflowX: isZoomed ? 'scroll' : 'hidden',
-                overflowY: 'hidden',
-                overscrollBehaviorX: 'none',
-                WebkitOverflowScrolling: 'touch',
-                touchAction: isZoomed ? 'pan-x pan-y' : 'pan-y',
-                scrollbarWidth: 'none',
-                '&::-webkit-scrollbar': { display: 'none' },
-              }}
-            >
-              <div style={{ width: spacerWidth, height: totalHeight }}>
-                {/* Canvas waveform (sticky so it stays visible while scrolling) */}
-                <WaveformMain
-                  tUniform={tUniform}
-                  deviationPct={deviationPct}
-                  viewStart={viewStart}
-                  viewEnd={viewEnd}
-                  wfPeak2Sigma={wfPeak2Sigma}
-                  harmonicOverlays={harmonicOverlays}
-                  loopStart={loopStart}
-                  loopEnd={loopEnd}
-                  totalDuration={totalDuration}
-                  startIdx={wfData.startIdx}
-                  endIdx={wfData.endIdx}
-                  yMin={wfData.yMin}
-                  yMax={wfData.yMax}
-                  timeToX={wfData.timeToX}
-                  deviationToY={wfData.deviationToY}
-                  width={containerWidth}
-                  height={plotHeight}
-                />
+          <Typography sx={{ fontSize: '0.8rem' }} color="text.secondary">
+            Waveform
+          </Typography>
+        </Box>
+      )}
 
-                {/* Timeline */}
-                <TimeAxis
-                  viewStart={viewStart}
-                  viewEnd={viewEnd}
-                  width={containerWidth}
-                />
-              </div>
-            </Box>
+      {/* Expanded content — hidden via display:none to preserve DOM, refs, gesture listeners */}
+      <Box sx={{ display: collapsed ? 'none' : 'block', pt: { xs: 1, sm: 2 }, px: { xs: 1, sm: 2 }, pb: 0 }}>
+        {/* Minimize control */}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', height: 36, alignItems: 'center', mt: { xs: -1, sm: -2 } }}>
+          <IconButton size="small" onClick={toggleCollapsed} sx={{ mr: -0.5 }}>
+            <RemoveIcon fontSize="small" />
+          </IconButton>
+        </Box>
 
-            {/* Handle overlays — OUTSIDE scroll wrapper, hidden when measurement not supported */}
-            <LoopHandles
+        {/* Overview bar — above main view */}
+        <Box sx={{ ml: `${AXIS_WIDTH}px` }}>
+          <WaveformOverview
+            tUniform={tUniform}
+            deviationPct={deviationPct}
+            totalDuration={totalDuration}
+            viewStart={viewStart}
+            viewEnd={viewEnd}
+            wfPeak2Sigma={wfPeak2Sigma}
+            loopStart={loopStart}
+            loopEnd={loopEnd}
+            onViewChange={handleViewChange}
+            onGestureStart={handleOverviewGestureStart}
+            onGestureEnd={handleOverviewGestureEnd}
+          />
+        </Box>
+
+        {/* Main waveform area: Y-axis + scrollable canvas + handle overlays */}
+        <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
+          {/* Y-axis label — rotated, positioned in card's left padding, centered on plot canvas */}
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{
+              position: 'absolute',
+              left: -14,
+              top: plotHeight / 2,
+              transform: 'rotate(-90deg) translateX(-50%)',
+              transformOrigin: '0 0',
+              whiteSpace: 'nowrap',
+              fontSize: '0.55rem',
+              opacity: 0.5,
+              letterSpacing: 0.3,
+              display: { xs: 'none', sm: 'block' },
+            }}
+          >
+            Speed Deviation (%)
+          </Typography>
+          {/* Y-axis */}
+          <DeviationAxis
+            yMin={wfData.yMin}
+            yMax={wfData.yMax}
+            height={plotHeight}
+            width={AXIS_WIDTH}
+          />
+
+          {/* Main area container — holds scroll wrapper and handle overlays */}
+          <Box
+            ref={containerRef}
+            data-waveform-container
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              position: 'relative',
+              userSelect: 'none',
+              WebkitTapHighlightColor: 'transparent',
+              overscrollBehaviorX: 'none',
+              touchAction: 'pan-y',
+              cursor: 'pointer',
+              border: `1px solid ${theme.palette.divider}`,
+              borderTop: 'none',
+              minHeight: totalHeight,
+            }}
+          >
+            {containerWidth > 0 && <>
+              {/* Scrollable wrapper — provides native touch momentum on iOS */}
+              <Box
+                ref={scrollRef}
+                sx={{
+                  width: '100%',
+                  height: totalHeight,
+                  overflowX: isZoomed ? 'scroll' : 'hidden',
+                  overflowY: 'hidden',
+                  overscrollBehaviorX: 'none',
+                  WebkitOverflowScrolling: 'touch',
+                  touchAction: isZoomed ? 'pan-x pan-y' : 'pan-y',
+                  scrollbarWidth: 'none',
+                  '&::-webkit-scrollbar': { display: 'none' },
+                }}
+              >
+                <div style={{ width: spacerWidth, height: totalHeight }}>
+                  {/* Canvas waveform (sticky so it stays visible while scrolling) */}
+                  <WaveformMain
+                    tUniform={tUniform}
+                    deviationPct={deviationPct}
+                    viewStart={viewStart}
+                    viewEnd={viewEnd}
+                    wfPeak2Sigma={wfPeak2Sigma}
+                    harmonicOverlays={harmonicOverlays}
+                    loopStart={loopStart}
+                    loopEnd={loopEnd}
+                    totalDuration={totalDuration}
+                    startIdx={wfData.startIdx}
+                    endIdx={wfData.endIdx}
+                    yMin={wfData.yMin}
+                    yMax={wfData.yMax}
+                    timeToX={wfData.timeToX}
+                    deviationToY={wfData.deviationToY}
+                    width={containerWidth}
+                    height={plotHeight}
+                  />
+
+                  {/* Timeline */}
+                  <TimeAxis
+                    viewStart={viewStart}
+                    viewEnd={viewEnd}
+                    width={containerWidth}
+                  />
+                </div>
+              </Box>
+
+              {/* Handle overlays — OUTSIDE scroll wrapper, hidden when measurement not supported */}
+              <LoopHandles
                 visible={canMeasure}
                 loopStart={loopStart}
                 loopEnd={loopEnd}
@@ -375,87 +400,88 @@ export default function Waveform({
                 gestureRef={gestureRef}
                 onLoopChange={handleLoopChange}
               />
-          </>}
+            </>}
+          </Box>
         </Box>
+
+        {/* Toolbar — loop controls (left), zoom controls (right) */}
+        <Box
+          sx={{
+            ml: `${AXIS_WIDTH}px`,
+            mt: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+          }}
+        >
+          {/* Left: loop controls (only when measurement supported) */}
+          {canMeasure && (
+            <>
+              <Tooltip title="Set measurement region">
+                <span>
+                  <IconButton
+                    onClick={handleBracket}
+                    size="small"
+                    sx={{ fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1rem', px: 0.5, minWidth: 32 }}
+                  >
+                    []
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Reset to full file">
+                <span>
+                  <IconButton
+                    onClick={handleResetBracket}
+                    disabled={isFullFile}
+                    size="small"
+                    sx={{ fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1rem', px: 0.5, minWidth: 32 }}
+                  >
+                    ][
+                  </IconButton>
+                </span>
+              </Tooltip>
+
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => onMeasureRegion(loopStart, loopEnd)}
+                disabled={!measureEnabled}
+                startIcon={processing ? <CircularProgress size={14} /> : null}
+                sx={{ ml: 0.5 }}
+              >
+                {processing ? 'Measuring...' : 'Measure'}
+              </Button>
+            </>
+          )}
+
+          {/* Spacer */}
+          <Box sx={{ flex: 1 }} />
+
+          {/* Right: zoom controls */}
+          <Tooltip title="Zoom in (+)">
+            <span>
+              <IconButton onClick={zoomIn} disabled={isMaxZoom} size="small">
+                <ZoomInIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Zoom out (−)">
+            <span>
+              <IconButton onClick={zoomOut} disabled={!isZoomed} size="small">
+                <ZoomOutIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Reset zoom (0)">
+            <span>
+              <IconButton onClick={resetZoom} disabled={!isZoomed} size="small">
+                <ZoomOutMapIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Box>
+        <ResizeBar />
       </Box>
-
-      {/* Toolbar — loop controls (left), zoom controls (right) */}
-      <Box
-        sx={{
-          ml: `${AXIS_WIDTH}px`,
-          mt: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.5,
-        }}
-      >
-        {/* Left: loop controls (only when measurement supported) */}
-        {canMeasure && (
-          <>
-            <Tooltip title="Set measurement region">
-              <span>
-                <IconButton
-                  onClick={handleBracket}
-                  size="small"
-                  sx={{ fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1rem', px: 0.5, minWidth: 32 }}
-                >
-                  []
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Reset to full file">
-              <span>
-                <IconButton
-                  onClick={handleResetBracket}
-                  disabled={isFullFile}
-                  size="small"
-                  sx={{ fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1rem', px: 0.5, minWidth: 32 }}
-                >
-                  ][
-                </IconButton>
-              </span>
-            </Tooltip>
-
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => onMeasureRegion(loopStart, loopEnd)}
-              disabled={!measureEnabled}
-              startIcon={processing ? <CircularProgress size={14} /> : null}
-              sx={{ ml: 0.5 }}
-            >
-              {processing ? 'Measuring...' : 'Measure'}
-            </Button>
-          </>
-        )}
-
-        {/* Spacer */}
-        <Box sx={{ flex: 1 }} />
-
-        {/* Right: zoom controls */}
-        <Tooltip title="Zoom in (+)">
-          <span>
-            <IconButton onClick={zoomIn} disabled={isMaxZoom} size="small">
-              <ZoomInIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Zoom out (−)">
-          <span>
-            <IconButton onClick={zoomOut} disabled={!isZoomed} size="small">
-              <ZoomOutIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Reset zoom (0)">
-          <span>
-            <IconButton onClick={resetZoom} disabled={!isZoomed} size="small">
-              <ZoomOutMapIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Box>
-      <ResizeBar />
     </Paper>
   );
 }
