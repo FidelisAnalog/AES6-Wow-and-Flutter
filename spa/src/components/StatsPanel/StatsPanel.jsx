@@ -66,6 +66,7 @@ export default function StatsPanel({ result, processing, duration, audioInfo }) 
       <Box sx={{ mt: 0.5 }}>
         {metrics.input_type !== 'device' && <Metric label="Mean:" value={`${fmt(metrics.f_mean, 3)} Hz`} />}
         {showDrift && <Metric label="Drift:" value={`${fmt(non_standard.drift_rms.value)}%`} />}
+        {metrics.fm_bw && <Metric label="BW:" value={metrics.fm_bw.value >= 1000 ? `${(Math.round(metrics.fm_bw.value / 10) * 10 / 1000).toFixed(1)} kHz` : `${Math.round(metrics.fm_bw.value / 10) * 10} Hz`} />}
       </Box>
 
       {/* Line 3: Unweighted */}

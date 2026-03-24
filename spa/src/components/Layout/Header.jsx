@@ -4,6 +4,7 @@ import { useThemeMode } from '../../theme/index.js';
 
 export default function Header() {
   const { mode, toggleTheme } = useThemeMode();
+  const logoSrc = mode === 'dark' ? '/logo-dark.svg' : '/logo-light.svg';
 
   return (
     <Box
@@ -16,9 +17,12 @@ export default function Header() {
         px: 0,
       }}
     >
-      <Typography variant="h5" component="h1" sx={{ fontWeight: 600 }}>
-        W&amp;F Analyzer <span style={{fontSize:'0.5em',opacity:0.5}}>Dev Preview</span>
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box component="img" src={logoSrc} alt="Fidelis Analog" sx={{ height: { xs: 48, sm: 58 } }} />
+        <Typography variant="h5" component="h1" sx={{ fontWeight: 600, mb: { xs: '1.5px', sm: '1px' }, fontSize: { xs: '1.251rem', sm: '1.5rem' } }}>
+          W&amp;F Analyzer
+        </Typography>
+      </Box>
 
       <Tooltip title={`Switch to ${mode === 'dark' ? 'light' : 'dark'} mode (Ctrl+Shift+T)`}>
         <IconButton onClick={toggleTheme} size="small" color="inherit">

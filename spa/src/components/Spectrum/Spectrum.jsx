@@ -87,14 +87,11 @@ export default function Spectrum({ spectrumData, onHarmonicSelect, processing = 
       hadDataRef.current = false;
       return;
     }
-    if (!hadDataRef.current) {
-      // First data after null — new file
-      const fMin = Math.max(freqs[0], SPECTRUM_MIN_FREQ);
-      const fMax = freqs[freqs.length - 1];
-      setViewFMin(fMin);
-      setViewFMax(fMax);
-      setSelectedPeakIndices([]);
-    }
+    const fMin = Math.max(freqs[0], SPECTRUM_MIN_FREQ);
+    const fMax = freqs[freqs.length - 1];
+    setViewFMin(fMin);
+    setViewFMax(fMax);
+    setSelectedPeakIndices([]);
     hadDataRef.current = true;
   }, [freqs]);
 

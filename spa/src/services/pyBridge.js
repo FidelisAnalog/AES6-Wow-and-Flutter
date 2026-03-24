@@ -61,9 +61,9 @@ async function _init() {
     }
     _pyodide = await globalThis.loadPyodide();
 
-    _onStatus?.('Installing numpy...');
+    _onStatus?.('Loading numpy...');
     await _pyodide.loadPackage(['numpy']);
-    _onStatus?.('Installing scipy...');
+    _onStatus?.('Loading scipy...');
     await _pyodide.loadPackage(['scipy']);
 
     _onStatus?.('Loading analyzer module...');
