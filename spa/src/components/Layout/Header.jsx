@@ -4,7 +4,8 @@ import { useThemeMode } from '../../theme/index.js';
 
 export default function Header() {
   const { mode, toggleTheme } = useThemeMode();
-  const logoSrc = mode === 'dark' ? '/logo-dark.svg' : '/logo-light.svg';
+  const base = import.meta.env.BASE_URL || '/';
+  const logoSrc = `${base}logo-${mode === 'dark' ? 'dark' : 'light'}.svg`;
 
   return (
     <Box
