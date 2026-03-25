@@ -8,7 +8,7 @@ import Waveform from './components/Waveform/Waveform.jsx';
 import Spectrum from './components/Spectrum/Spectrum.jsx';
 import PlotTabs from './components/PlotTabs/PlotTabs.jsx';
 import { getPeakColor } from './components/Spectrum/peakColors.js';
-import { loadAudioFile, loadAudioFromUrl } from './services/audioLoader.js';
+import { loadAudioFile, fetchRemoteFile } from './services/audioLoader.js';
 import useQueryParams from './hooks/useQueryParams.js';
 import {
   initPyBridge, onStatus, onResult, onError,
@@ -16,6 +16,15 @@ import {
 } from './services/pyBridge.js';
 
 const EPSILON = 0.001;
+
+/** Extract filename from a URL path, or return a fallback. */
+function filenameFromSource(url) {
+  try {
+    const path = new URL(url).pathname;
+    const last = path.split('/').pop();
+    return last ? decodeURIComponent(last) : 'remote-file';
+  } catch { return 'remote-file'; }
+}
 
 /**
  * Health indicator dot — occupies same space as the spinner.
@@ -125,7 +134,11 @@ function App() {
     });
   }, []);
 
-  const handleFile = useCallback(async (file) => {
+  /**
+   * Unified file loading — handles local File objects and remote URLs.
+   * Detects format from filename/URL, routes to audio or device pipeline.
+   */
+  const loadSource = useCallback(async (source) => {
     setError(null);
     setErrorTrace('');
     setFullResult(null);
@@ -134,21 +147,47 @@ function App() {
     setHarmonicOverlays([]);
     isRegionMeasureRef.current = false;
 
-    const isText = file.name.match(/\.txt$/i);
-    const isAudio = file.name.match(/\.(wav|flac)$/i);
+    const isUrl = typeof source === 'string';
+    let fileName, getText, getAudio;
+
+    if (isUrl) {
+      fileName = filenameFromSource(source);
+      getText = async () => {
+        setStatusText('Fetching file from URL...');
+        const resp = await fetchRemoteFile(source);
+        return new TextDecoder().decode(resp);
+      };
+      getAudio = async () => {
+        setStatusText('Fetching file from URL...');
+        const buffer = await fetchRemoteFile(source);
+        return loadAudioFile(buffer, fileName);
+      };
+    } else {
+      fileName = source.name;
+      getText = async () => {
+        setStatusText('Reading text file...');
+        return source.text();
+      };
+      getAudio = async () => {
+        setStatusText('Loading file...');
+        return loadAudioFile(source);
+      };
+    }
+
+    const isText = /\.(txt|csv)$/i.test(fileName);
+    const isAudio = /\.(wav|flac)$/i.test(fileName);
 
     if (!isText && !isAudio) {
-      setError('Unsupported file format. Please use WAV, FLAC, or TXT (shaknspin).');
+      setError('Unsupported file format. Please use WAV, FLAC, TXT, or CSV.');
       return;
     }
 
     try {
       if (isText) {
-        setStatusText('Reading text file...');
-        const text = await file.text();
+        const text = await getText();
         audioRef.current = null;
         setAudioInfo({
-          fileName: file.name,
+          fileName,
           sampleRate: null,
           channels: null,
           duration: null,
@@ -158,16 +197,15 @@ function App() {
         setStatusText('Starting analysis...');
         await analyzeFull(text, null, 'device');
       } else {
-        setStatusText('Loading file...');
-        const audio = await loadAudioFile(file);
-
-        // Keep PCM only in ref (not React state) — large typed arrays in
-        // React state cause Safari to stall 10-12s during rendering.
+        const audio = await getAudio();
         const { pcm, ...audioMeta } = audio;
         audioRef.current = { pcm, sampleRate: audio.sampleRate };
         setAudioInfo(audioMeta);
-
         await runAnalysis(pcm, audio.sampleRate, 'Starting analysis...');
+      }
+
+      if (isUrl) {
+        window.history.replaceState({}, '', window.location.pathname);
       }
     } catch (e) {
       const msg = String(e);
@@ -176,35 +214,19 @@ function App() {
       } else {
         setError(msg);
       }
+      if (isUrl) setStatusText('Load failed');
     }
   }, [runAnalysis]);
+
+  const handleFile = useCallback((file) => loadSource(file), [loadSource]);
 
   // Auto-load from ?file=<URL> query param once Pyodide is ready
   const urlLoadedRef = useRef(false);
   useEffect(() => {
     if (!pyReady || !fileUrl || urlLoadedRef.current) return;
     urlLoadedRef.current = true;
-    (async () => {
-      setError(null);
-      setErrorTrace('');
-      setFullResult(null);
-      setRegionResult(null);
-      setLastMeasuredRegion(null);
-      try {
-        setStatusText('Fetching file from URL...');
-        const audio = await loadAudioFromUrl(fileUrl);
-        const { pcm, ...audioMeta } = audio;
-        audioRef.current = { pcm, sampleRate: audio.sampleRate };
-        setAudioInfo(audioMeta);
-        await runAnalysis(pcm, audio.sampleRate, 'Starting analysis...');
-        // Strip all query params after successful load
-        window.history.replaceState({}, '', window.location.pathname);
-      } catch (e) {
-        setError(String(e));
-        setStatusText('URL load failed');
-      }
-    })();
-  }, [pyReady, fileUrl]);
+    loadSource(fileUrl);
+  }, [pyReady, fileUrl, loadSource]);
 
   // Page-level drop handler — files dropped anywhere on the page trigger loading
   useEffect(() => {

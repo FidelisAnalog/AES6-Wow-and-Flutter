@@ -48,7 +48,7 @@ export default function FileInput({ onFileSelected, disabled, compact = false })
     <input
       ref={inputRef}
       type="file"
-      accept=".wav,.flac,.txt"
+      accept=".wav,.flac,.txt,.csv"
       style={{ display: 'none' }}
       onChange={handleFileChange}
     />

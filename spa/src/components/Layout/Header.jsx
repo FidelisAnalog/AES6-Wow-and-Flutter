@@ -22,6 +22,7 @@ export default function Header() {
         <Box component="img" src={logoSrc} alt="" sx={{ height: { xs: 48, sm: 58 } }} />
         <Typography variant="h5" component="h1" sx={{ fontWeight: 600, mb: { xs: '1.5px', sm: '1px' }, fontSize: { xs: '1.251rem', sm: '1.5rem' } }}>
           W&amp;F Analyzer
+          <Box component="span" sx={{ fontSize: '0.5em', ml: 1, color: 'error.main' }}>Dev Demo</Box>
         </Typography>
       </Box>
 

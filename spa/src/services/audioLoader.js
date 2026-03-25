@@ -391,12 +391,19 @@ function decodeBuffer(buffer, fileName) {
 
 /**
  * Load and pre-process an audio file.
- * @param {File} file
+ * @param {File|ArrayBuffer} source - File object or raw ArrayBuffer
+ * @param {string} [fileName] - required when source is ArrayBuffer
  * @returns {Promise<object>} Processed audio info
  */
-export async function loadAudioFile(file) {
-  const buffer = await file.arrayBuffer();
-  const raw = await decodeBuffer(buffer, file.name);
+export async function loadAudioFile(source, fileName) {
+  let buffer;
+  if (source instanceof ArrayBuffer) {
+    buffer = source;
+  } else {
+    fileName = source.name;
+    buffer = await source.arrayBuffer();
+  }
+  const raw = await decodeBuffer(buffer, fileName);
   return processRawAudio(raw);
 }
 
@@ -409,7 +416,6 @@ function fixDropboxUrl(url) {
   try {
     const u = new URL(url);
     if (!u.hostname.includes('dropbox.com')) return url;
-    // Rewrite hostname to skip CORS-blocking redirect
     u.hostname = 'dl.dropboxusercontent.com';
     u.searchParams.set('dl', '1');
     return u.toString();
@@ -417,33 +423,20 @@ function fixDropboxUrl(url) {
 }
 
 /**
- * Extract a filename from a URL path.
- */
-function filenameFromUrl(url) {
-  try {
-    const path = new URL(url).pathname;
-    const last = path.split('/').pop();
-    return last ? decodeURIComponent(last) : 'remote-file.wav';
-  } catch { return 'remote-file.wav'; }
-}
-
-/**
- * Load and pre-process audio from a remote URL.
+ * Fetch a remote file with retry. Returns raw ArrayBuffer.
  * @param {string} url
- * @returns {Promise<object>} Processed audio info
+ * @returns {Promise<ArrayBuffer>}
  */
-export async function loadAudioFromUrl(url) {
+export async function fetchRemoteFile(url) {
   const fetchUrl = fixDropboxUrl(url);
-  const fileName = filenameFromUrl(url);
 
-  let buffer;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const resp = await fetch(fetchUrl);
       if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-      buffer = await resp.arrayBuffer();
+      const buffer = await resp.arrayBuffer();
       if (buffer.byteLength === 0) throw new Error('Fetched file is empty');
-      break;
+      return buffer;
     } catch (err) {
       if (attempt < 2) {
         console.warn(`[audioLoader] Fetch attempt ${attempt + 1} failed: ${err.message}, retrying...`);
@@ -453,7 +446,4 @@ export async function loadAudioFromUrl(url) {
       throw new Error(`Failed to fetch file after 3 attempts: ${err.message}`);
     }
   }
-
-  const raw = await decodeBuffer(buffer, fileName);
-  return processRawAudio(raw);
 }
