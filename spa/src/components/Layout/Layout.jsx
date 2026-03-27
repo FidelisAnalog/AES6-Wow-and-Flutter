@@ -15,9 +15,9 @@ export default function Layout({ children }) {
         display: 'flex',
         flexDirection: 'column',
         minHeight: '100vh',
-        maxWidth: 900,
+        maxWidth: 1350,
         mx: 'auto',
-        px: embed ? 0 : { xs: 1, sm: 3 },
+        px: embed ? 0 : { xs: 1, sm: 6 },
         py: embed ? 0 : 2,
       }}
     >
